@@ -1,0 +1,5 @@
+{
+  "name": "Remix: 15 Anos da Ana",
+  "description": "Aplicativo web para compartilhamento de fotos e vídeos do evento de 15 anos da Ana.",
+  "requestFramePermissions": ["camera", "microphone"]
+}

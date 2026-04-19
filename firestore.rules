@@ -1,0 +1,253 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: media
+    // Document ID: [auto-generated]
+    // Fields:
+    //   - title: string (required, max 200 chars)
+    //   - type: string (required, 'photo' or 'video')
+    //   - author: string (required, max 50 chars)
+    //   - authorSessionId: string (required, max 100 chars)
+    //   - driveFileId: string (required, max 100 chars)
+    //   - driveViewLink: string (optional, max 500 chars)
+    //   - status: string (required, 'pending', 'approved', 'rejected')
+    //   - timestamp: timestamp (required)
+    //   - likesCount: number (required, >= 0)
+    //
+    // Collection: media/{mediaId}/likes
+    // Document ID: [sessionId]
+    // Fields:
+    //   - sessionId: string (required, max 100 chars)
+    //   - timestamp: timestamp (required)
+    //
+    // Collection: media/{mediaId}/comments
+    // Document ID: [auto-generated]
+    // Fields:
+    //   - author: string (required, max 50 chars)
+    //   - authorSessionId: string (required, max 100 chars)
+    //   - text: string (required, max 500 chars)
+    //   - timestamp: timestamp (required)
+    //
+    // Collection: settings
+    // Document ID: global
+    // Fields:
+    //   - uploadsEnabled: boolean (required)
+    //   - requireApproval: boolean (required)
+    //   - inviteCode: string (required, max 50 chars)
+    //
+    // Collection: access_logs
+    // Document ID: [auto-generated]
+    // Fields:
+    //   - guestName: string (required)
+    //   - sessionId: string (required)
+    //   - timestamp: timestamp (required)
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+
+    // Check if user is an authenticated admin
+    function isAdmin() {
+      return request.auth != null && request.auth.token.email != null;
+    }
+
+    // Validate string length
+    function validStringLength(field, minLen, maxLen) {
+      return request.resource.data[field] is string &&
+        request.resource.data[field].size() >= minLen &&
+        request.resource.data[field].size() <= maxLen;
+    }
+
+    // Validate optional string
+    function isValidOptionalString(field, minLen, maxLen) {
+      return !(field in request.resource.data) ||
+             request.resource.data[field] == null ||
+             (request.resource.data[field] is string &&
+              request.resource.data[field].size() >= minLen &&
+              request.resource.data[field].size() <= maxLen);
+    }
+
+    // Validate optional boolean
+    function isValidOptionalBoolean(field) {
+      return !(field in request.resource.data) ||
+             request.resource.data[field] == null ||
+             request.resource.data[field] is bool;
+    }
+
+    // Validate required fields exist
+    function hasRequiredFields(fields) {
+      return request.resource.data.keys().hasAll(fields);
+    }
+
+    // Validate that the document contains only the allowed fields
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+
+    function isValidMedia(data) {
+      return hasOnlyAllowedFields(['title', 'type', 'author', 'authorSessionId', 'driveFileId', 'driveViewLink', 'thumbnailLink', 'status', 'timestamp', 'likesCount', 'isPinned', 'isHostAlbum']) &&
+             validStringLength('title', 1, 200) &&
+             (data.type == 'photo' || data.type == 'video') &&
+             validStringLength('author', 1, 50) &&
+             validStringLength('authorSessionId', 1, 100) &&
+             validStringLength('driveFileId', 1, 100) &&
+             isValidOptionalString('driveViewLink', 1, 500) &&
+             isValidOptionalString('thumbnailLink', 1, 500) &&
+             isValidOptionalBoolean('isPinned') &&
+             isValidOptionalBoolean('isHostAlbum') &&
+             (data.status == 'pending' || data.status == 'approved' || data.status == 'rejected') &&
+             data.timestamp is timestamp &&
+             data.likesCount is number && data.likesCount >= 0;
+    }
+
+    function isValidLike(data) {
+      return hasOnlyAllowedFields(['sessionId', 'timestamp', 'type', 'author']) &&
+             validStringLength('sessionId', 1, 100) &&
+             isValidOptionalString('type', 1, 50) &&
+             isValidOptionalString('author', 1, 100) &&
+             data.timestamp is timestamp;
+    }
+
+    function isValidComment(data) {
+      return hasOnlyAllowedFields(['author', 'authorSessionId', 'text', 'timestamp']) &&
+             validStringLength('author', 1, 50) &&
+             validStringLength('authorSessionId', 1, 100) &&
+             validStringLength('text', 1, 500) &&
+             data.timestamp is timestamp;
+    }
+
+    function isValidSettings(data) {
+      return data.keys().hasAll(['uploadsEnabled', 'requireApproval', 'inviteCode']) &&
+             data.uploadsEnabled is bool &&
+             data.requireApproval is bool &&
+             validStringLength('inviteCode', 1, 50);
+    }
+
+    function isValidGuestbookEntry(data) {
+      return hasOnlyAllowedFields(['author', 'authorSessionId', 'authorPhotoUrl', 'message', 'driveFileId', 'thumbnailLink', 'signatureDataUrl', 'timestamp']) &&
+             validStringLength('author', 1, 50) &&
+             validStringLength('authorSessionId', 1, 100) &&
+             validStringLength('message', 1, 1000) &&
+             isValidOptionalString('authorPhotoUrl', 1, 500) &&
+             isValidOptionalString('driveFileId', 1, 100) &&
+             isValidOptionalString('thumbnailLink', 1, 500) &&
+             isValidOptionalString('signatureDataUrl', 1, 500000) && // Base64 image can be large, but limit to ~500KB
+             data.timestamp is timestamp;
+    }
+
+    function isValidPrediction(data) {
+      return hasOnlyAllowedFields(['author', 'authorSessionId', 'authorPhotoUrl', 'text', 'driveFileId', 'thumbnailLink', 'timestamp']) &&
+             validStringLength('author', 1, 50) &&
+             validStringLength('authorSessionId', 1, 100) &&
+             validStringLength('text', 1, 500) &&
+             isValidOptionalString('authorPhotoUrl', 1, 500) &&
+             isValidOptionalString('driveFileId', 1, 100) &&
+             isValidOptionalString('thumbnailLink', 1, 500) &&
+             data.timestamp is timestamp;
+    }
+
+    function isValidUserLog(data) {
+      return hasOnlyAllowedFields(['guestName', 'sessionId', 'timestamp']) &&
+             validStringLength('guestName', 1, 50) &&
+             validStringLength('sessionId', 1, 100) &&
+             data.timestamp is timestamp;
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /{path=**}/comments/{commentId} {
+      allow read: if true;
+    }
+
+    match /{path=**}/likes/{sessionId} {
+      allow read: if true;
+    }
+
+    match /guestbook/{entryId} {
+      allow read: if true;
+      allow create: if isValidGuestbookEntry(request.resource.data);
+      allow delete: if isAdmin() || (
+        get(/databases/$(database)/documents/settings/global).data.canDelete == true
+      );
+    }
+
+    match /predictions/{predictionId} {
+      allow read: if true;
+      allow create: if isValidPrediction(request.resource.data);
+      allow delete: if isAdmin() || (
+        get(/databases/$(database)/documents/settings/global).data.canDelete == true
+      );
+    }
+
+    match /access_logs/{logId} {
+      allow read: if isAdmin();
+      allow create: if isValidUserLog(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    match /settings/global {
+      // Anyone can read settings to check invite code and upload status
+      allow read: if true;
+      // Only admins can update settings
+      allow write: if isAdmin() && isValidSettings(request.resource.data);
+    }
+
+    match /media/{mediaId} {
+      // Anyone can read media (needed so users can query their own pending media by sessionId)
+      allow read: if true;
+      
+      // Guests can create media
+      allow create: if isAdmin() || (
+        isValidMedia(request.resource.data) &&
+        get(/databases/$(database)/documents/settings/global).data.uploadsEnabled == true
+      );
+
+      // Only admins can update media (e.g., change status)
+      // Guests can update likesCount, but we must ensure it's a valid increment
+      allow update: if isAdmin() || (
+        // Allow guests to update ONLY the likesCount field
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likesCount']) &&
+        math.abs(request.resource.data.likesCount - resource.data.likesCount) == 1
+      );
+
+      allow delete: if isAdmin() || (
+        get(/databases/$(database)/documents/settings/global).data.canDelete == true
+      );
+
+      match /likes/{likeId} {
+        // Anyone can read likes
+        allow read: if true;
+        // Guests can create/update/delete their own likes (document ID must be sessionId_type)
+        allow create, update: if isValidLike(request.resource.data) && 
+                               likeId == request.resource.data.sessionId + "_" + request.resource.data.type;
+        allow delete: if true; 
+      }
+
+      match /comments/{commentId} {
+        // Anyone can read comments
+        allow read: if true;
+        // Guests can create comments
+        allow create: if isValidComment(request.resource.data);
+        // Only admins can delete comments
+        allow delete: if isAdmin();
+        allow update: if isAdmin();
+      }
+    }
+
+    match /test/connection {
+      allow read: if true;
+    }
+  }
+}

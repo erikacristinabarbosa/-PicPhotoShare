@@ -1,0 +1,192 @@
+{
+  "entities": {
+    "Media": {
+      "title": "Media",
+      "description": "A photo or video uploaded by a guest.",
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string",
+          "description": "Original file name or user-provided title."
+        },
+        "type": {
+          "type": "string",
+          "enum": ["photo", "video"],
+          "description": "Type of media."
+        },
+        "author": {
+          "type": "string",
+          "description": "Name or nickname of the guest who uploaded."
+        },
+        "authorSessionId": {
+          "type": "string",
+          "description": "Session ID of the guest who uploaded."
+        },
+        "driveFileId": {
+          "type": "string",
+          "description": "Google Drive file ID."
+        },
+        "driveViewLink": {
+          "type": "string",
+          "description": "Google Drive web view link."
+        },
+        "status": {
+          "type": "string",
+          "enum": ["pending", "approved", "rejected"],
+          "description": "Approval status."
+        },
+        "timestamp": {
+          "type": "timestamp",
+          "description": "Time of upload."
+        },
+        "likesCount": {
+          "type": "number",
+          "description": "Number of likes."
+        }
+      },
+      "required": ["title", "type", "author", "authorSessionId", "driveFileId", "status", "timestamp", "likesCount"]
+    },
+    "Like": {
+      "title": "Like",
+      "description": "A like on a media item by a guest.",
+      "type": "object",
+      "properties": {
+        "sessionId": {
+          "type": "string",
+          "description": "Session ID of the guest who liked."
+        },
+        "timestamp": {
+          "type": "timestamp",
+          "description": "Time of like."
+        }
+      },
+      "required": ["sessionId", "timestamp"]
+    },
+    "Comment": {
+      "title": "Comment",
+      "description": "A comment on a media item.",
+      "type": "object",
+      "properties": {
+        "author": {
+          "type": "string",
+          "description": "Name or nickname of the guest."
+        },
+        "authorSessionId": {
+          "type": "string",
+          "description": "Session ID of the guest."
+        },
+        "text": {
+          "type": "string",
+          "description": "Comment text."
+        },
+        "timestamp": {
+          "type": "timestamp",
+          "description": "Time of comment."
+        }
+      },
+      "required": ["author", "authorSessionId", "text", "timestamp"]
+    },
+    "Settings": {
+      "title": "Settings",
+      "description": "Global app settings.",
+      "type": "object",
+      "properties": {
+        "uploadsEnabled": {
+          "type": "boolean",
+          "description": "Whether guests can upload new media."
+        },
+        "requireApproval": {
+          "type": "boolean",
+          "description": "Whether media requires admin approval before showing in gallery."
+        },
+        "inviteCode": {
+          "type": "string",
+          "description": "The code required to access the app."
+        }
+      },
+      "required": ["uploadsEnabled", "requireApproval", "inviteCode"]
+    },
+    "GuestbookEntry": {
+      "title": "GuestbookEntry",
+      "description": "A message left by a guest in the digital guestbook.",
+      "type": "object",
+      "properties": {
+        "author": {
+          "type": "string",
+          "description": "Name of the guest."
+        },
+        "authorSessionId": {
+          "type": "string",
+          "description": "Session ID of the guest."
+        },
+        "message": {
+          "type": "string",
+          "description": "The message left by the guest."
+        },
+        "driveFileId": {
+          "type": "string",
+          "description": "Optional Google Drive file ID for the photo."
+        },
+        "thumbnailLink": {
+          "type": "string",
+          "description": "Optional Google Drive thumbnail link."
+        },
+        "signatureDataUrl": {
+          "type": "string",
+          "description": "Base64 encoded image of the signature."
+        },
+        "timestamp": {
+          "type": "timestamp",
+          "description": "Time of entry."
+        }
+      },
+      "required": ["author", "authorSessionId", "message", "timestamp"]
+    },
+    "UserLog": {
+      "title": "UserLog",
+      "description": "A log of a user accessing the application.",
+      "type": "object",
+      "properties": {
+        "guestName": {
+          "type": "string",
+          "description": "Name of the guest."
+        },
+        "sessionId": {
+          "type": "string",
+          "description": "Session ID of the guest."
+        },
+        "timestamp": {
+          "type": "timestamp",
+          "description": "Time of access."
+        }
+      },
+      "required": ["guestName", "sessionId", "timestamp"]
+    }
+  },
+  "firestore": {
+    "/access_logs/{logId}": {
+      "schema": { "$ref": "#/entities/UserLog" },
+      "description": "Collection of all user access logs."
+    },
+    "/guestbook/{entryId}": {
+      "schema": { "$ref": "#/entities/GuestbookEntry" },
+      "description": "Collection of all guestbook entries."
+    },
+    "/media/{mediaId}": {
+      "schema": { "$ref": "#/entities/Media" },
+      "description": "Collection of all uploaded media."
+    },
+    "/media/{mediaId}/likes/{likeId}": {
+      "schema": { "$ref": "#/entities/Like" },
+      "description": "Likes for a specific media item. Document ID is the sessionId."
+    },
+    "/media/{mediaId}/comments/{commentId}": {
+      "schema": { "$ref": "#/entities/Comment" },
+      "description": "Comments for a specific media item."
+    },
+    "/settings/global": {
+      "schema": { "$ref": "#/entities/Settings" },
+      "description": "Global application settings."
+    }
+  }
+}
