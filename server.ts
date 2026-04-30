@@ -36,7 +36,7 @@ function getDriveClient() {
 
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  const PORT = process.env.PORT || 3000;
 
   // Mullter for file uploads (use memoryStorage for small files)
   const upload = multer({ 
