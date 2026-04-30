@@ -1,15 +1,19 @@
 import React, { useState, useEffect } from 'react';
+import Portal from './Portal';
 import { useNavigate } from 'react-router-dom';
 import { useSession } from '../SessionContext';
 import { db } from '../firebase';
-import { doc, getDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { Settings } from '../types';
 import { Html5Qrcode } from 'html5-qrcode';
-import { QrCode, X, AlertCircle, ExternalLink, RefreshCcw, HelpCircle } from 'lucide-react';
+import { QrCode, X, AlertCircle, ExternalLink, RefreshCcw, HelpCircle, Lock, User, EyeOff, Eye, Ticket, Camera } from 'lucide-react';
 import Footer from './Footer';
 
 export default function Login({ settings: initialSettings }: { settings?: Settings | null }) {
   const [name, setName] = useState('');
+  const [phone, setPhone] = useState('');
+  const [pin, setPin] = useState('');
+  const [showPin, setShowPin] = useState(false);
   const [inviteCode, setInviteCode] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -21,6 +25,18 @@ export default function Login({ settings: initialSettings }: { settings?: Settin
   const [progress, setProgress] = useState(0);
   const { login, sessionId } = useSession();
   const navigate = useNavigate();
+
+  useEffect(() => {
+    const cachedObj = localStorage.getItem('guestCache');
+    if (cachedObj) {
+      try {
+        const data = JSON.parse(cachedObj);
+        if (data.name) setName(data.name);
+        if (data.phone) setPhone(data.phone);
+        if (data.pin) setPin(data.pin);
+      } catch (e) {}
+    }
+  }, []);
 
   useEffect(() => {
     if (initialSettings) {
@@ -176,8 +192,44 @@ export default function Login({ settings: initialSettings }: { settings?: Settin
         throw new Error('Por favor, insira nome e sobrenome.');
       }
 
+      const cleanPhone = phone.replace(/\D/g, '');
+      if (cleanPhone.length < 10) throw new Error('Por favor, insira um telefone válido com DDD.');
+      
+      const trimmedPin = pin.trim();
+      if (trimmedPin.length !== 4) throw new Error('O PIN deve ter exatamente 4 números.');
+
       const formattedName = formatName(trimmedName);
-      login(formattedName);
+      const guestId = cleanPhone;
+      
+      const userRef = doc(db, 'guest_users', guestId);
+      const userSnap = await getDoc(userRef);
+
+      if (userSnap.exists()) {
+        const userData = userSnap.data();
+        
+        const dbNameLower = (userData.name || '').toLowerCase().trim();
+        const inputNameLower = formattedName.toLowerCase().trim();
+        
+        if (dbNameLower && dbNameLower !== inputNameLower) {
+          throw new Error(`Este telefone já está cadastrado com outro nome. Por favor, digite o nome usado no primeiro login.`);
+        }
+        
+        if (userData.pin !== trimmedPin) {
+          throw new Error('Telefone já cadastrado. Por favor, insira o PIN associado a este telefone.');
+        }
+        localStorage.setItem('guestCache', JSON.stringify({ name: formattedName || userData.name, phone, pin: trimmedPin }));
+        login(formattedName || userData.name, cleanPhone);
+      } else {
+        await setDoc(userRef, {
+          name: formattedName || cleanPhone,
+          contact: phone,
+          pin: trimmedPin,
+          createdAt: serverTimestamp()
+        });
+        localStorage.setItem('guestCache', JSON.stringify({ name: formattedName || cleanPhone, phone, pin: trimmedPin }));
+        login(formattedName || cleanPhone, cleanPhone);
+      }
+
       navigate({ pathname: '/gallery', search: window.location.search });
     } catch (err: any) {
       setError(err.message || 'Erro ao entrar.');
@@ -207,284 +259,259 @@ export default function Login({ settings: initialSettings }: { settings?: Settin
     return () => clearInterval(timer);
   }, [showSplash]);
 
+  const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    let input = e.target.value;
+    
+    // If user is deleting (input is shorter than current phone), just accept it
+    if (input.length < phone.length) {
+      setPhone(input);
+      return;
+    }
+
+    let v = input.replace(/\D/g, '');
+    if (v.length > 11) v = v.slice(0, 11);
+    
+    if (v.length > 10) {
+      v = v.replace(/^(\d{2})(\d{5})(\d{4}).*/, '($1)$2-$3');
+    } else if (v.length > 6) {
+      v = v.replace(/^(\d{2})(\d{4,5})(\d{0,4}).*/, '($1)$2-$3');
+    } else if (v.length > 2) {
+      v = v.replace(/^(\d{2})(\d{0,5})/, '($1)$2');
+    } else if (v.length > 0) {
+      v = v.replace(/^(\d*)/, '($1');
+    }
+    setPhone(v);
+  };
+
   if (showSplash) {
     const radius = 60;
     const circumference = 2 * Math.PI * radius;
     const strokeDashoffset = circumference - (progress / 100) * circumference;
 
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-[#FAFAFA]">
-        <div className="relative flex items-center justify-center">
-          {/* Background Circle */}
-          <svg className="absolute w-40 h-40 transform -rotate-90">
-            <circle
-              cx="80"
-              cy="80"
-              r={radius}
-              stroke="#f3e8d6"
-              strokeWidth="4"
-              fill="transparent"
-            />
-            {/* Progress Circle */}
-            <circle
-              cx="80"
-              cy="80"
-              r={radius}
-              stroke="url(#gold-gradient)"
-              strokeWidth="4"
-              fill="transparent"
-              strokeDasharray={circumference}
-              strokeDashoffset={strokeDashoffset}
-              strokeLinecap="round"
-              className="transition-all duration-75 ease-linear"
-            />
-            <defs>
-              <linearGradient id="gold-gradient" x1="0%" y1="0%" x2="100%" y2="0%">
-                <stop offset="0%" stopColor="#BF953F" />
-                <stop offset="25%" stopColor="#FCF6BA" />
-                <stop offset="50%" stopColor="#B38728" />
-                <stop offset="75%" stopColor="#FBF5B7" />
-                <stop offset="100%" stopColor="#AA771C" />
-              </linearGradient>
-            </defs>
-          </svg>
-          
-          {/* Logo */}
-          <div className="w-28 h-28 rounded-full overflow-hidden flex items-center justify-center bg-white shadow-sm z-10">
-            <img src="/logo.jpg" alt="Logo" className="w-full h-full object-cover" />
+      <Portal>
+        <div className="fixed inset-0 z-[9999] flex flex-col items-center justify-center bg-[#FAFAFA]">
+          <div className="relative flex items-center justify-center">
+            {/* Background Circle */}
+            <svg className="absolute w-40 h-40 transform -rotate-90">
+              <circle
+                cx="80"
+                cy="80"
+                r={radius}
+                stroke="#f3e8d6"
+                strokeWidth="4"
+                fill="transparent"
+              />
+              {/* Progress Circle */}
+              <circle
+                cx="80"
+                cy="80"
+                r={radius}
+                stroke="url(#gold-gradient)"
+                strokeWidth="4"
+                fill="transparent"
+                strokeDasharray={circumference}
+                strokeDashoffset={strokeDashoffset}
+                strokeLinecap="round"
+                className="transition-all duration-75 ease-linear"
+              />
+              <defs>
+                <linearGradient id="gold-gradient" x1="0%" y1="0%" x2="100%" y2="0%">
+                  <stop offset="0%" stopColor="#BF953F" />
+                  <stop offset="25%" stopColor="#FCF6BA" />
+                  <stop offset="50%" stopColor="#B38728" />
+                  <stop offset="75%" stopColor="#FBF5B7" />
+                  <stop offset="100%" stopColor="#AA771C" />
+                </linearGradient>
+              </defs>
+            </svg>
+            
+            {/* Logo */}
+            <div className="w-28 h-28 rounded-full overflow-hidden flex items-center justify-center bg-white shadow-sm z-10">
+              <img src="/logo.png" alt="Logo" className="w-full h-full object-contain" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
+            </div>
+          </div>
+          <div className="mt-8 text-[#D4A373] font-medium tracking-widest uppercase text-sm animate-pulse">
+            Carregando...
           </div>
         </div>
-        <div className="mt-8 text-[#D4A373] font-medium tracking-widest uppercase text-sm animate-pulse">
-          Carregando...
-        </div>
-      </div>
+      </Portal>
     );
   }
 
   return (
-    <div className="min-h-screen flex flex-col bg-[#FAFAFA]">
-      <div className="flex-1 flex flex-col items-center justify-center p-4">
-        <div className="max-w-md w-full bg-white rounded-3xl shadow-xl p-8 space-y-8">
-        
-        {/* 1. Text & Event Info (Moved to Top) */}
-        <div className="text-center space-y-4 pb-2">
-          <h1 className="text-4xl font-montserrat font-bold text-[#D4A373] tracking-widest uppercase drop-shadow-sm">
-            {settings?.eventName || '15 Anos da Ana'}
-          </h1>
-          <p className="text-gray-500">
-            {settings?.welcomeMessage || 'Compartilhe seus momentos conosco'}
-          </p>
+    <div className="min-h-screen flex flex-col items-center justify-center relative overflow-hidden">
+      <a 
+        href="https://wa.me/5519920103269"
+        target="_blank"
+        rel="noopener noreferrer"
+        className="absolute top-[74px] right-6 z-40 w-14 h-14 hover:scale-110 transition-transform drop-shadow-[0_4px_15px_rgba(0,0,0,0.6)] animate-pulse-scale"
+        title="Fale conosco no WhatsApp"
+      >
+        <img src="/botao-whats.png" alt="WhatsApp" className="w-full h-full object-contain" />
+      </a>
 
-          {timeLeft && (
-            <div className="flex justify-center gap-4 py-4">
-              <div className="flex flex-col items-center">
-                <span className="text-2xl font-bold text-[#D4A373]">{timeLeft.days}</span>
-                <span className="text-xs text-gray-500 uppercase">Dias</span>
-              </div>
-              <div className="flex flex-col items-center">
-                <span className="text-2xl font-bold text-[#D4A373]">{timeLeft.hours}</span>
-                <span className="text-xs text-gray-500 uppercase">Horas</span>
-              </div>
-              <div className="flex flex-col items-center">
-                <span className="text-2xl font-bold text-[#D4A373]">{timeLeft.minutes}</span>
-                <span className="text-xs text-gray-500 uppercase">Min</span>
-              </div>
-              <div className="flex flex-col items-center">
-                <span className="text-2xl font-bold text-[#D4A373]">{timeLeft.seconds}</span>
-                <span className="text-xs text-gray-500 uppercase">Seg</span>
-              </div>
-            </div>
-          )}
+      {/* Imagem de Fundo Moderna de Festa com Celular */}
+      <div 
+        className="absolute inset-0 z-0 sm:bg-cover sm:bg-center bg-contain bg-[center_top_2rem] bg-no-repeat opacity-100 saturate-[1.25] brightness-110 contrast-110"
+        style={{ backgroundImage: `url('/bg-festa-celular.png')` }}
+      />
+      {/* Sobreposição escura para garantir que o formulário seja legível */}
+      <div className="absolute inset-0 z-0 bg-gradient-to-b from-black/20 via-black/50 to-[#2A0815] shadow-[inset_0_0_80px_rgba(0,0,0,0.4)]" />
+
+      <div className="w-full max-w-[400px] px-6 z-10 flex flex-col items-center flex-1 justify-center">
+        <div className="flex flex-col items-center text-center space-y-4 mb-4 pt-4">
+          <div className="w-32 h-32 sm:w-40 sm:h-40 rounded-full bg-gradient-to-tr from-[#B38728] via-[#FCF6BA] to-[#BF953F] p-1 shadow-[0_0_40px_rgba(191,149,63,0.4)] flex items-center justify-center translate-y-[-10px]">
+             <div className="w-full h-full bg-[#2A0815] rounded-full flex items-center justify-center relative overflow-hidden">
+               <img src="/logo.png" alt="Logo" className="w-[115%] h-[115%] object-contain" onError={(e) => { e.currentTarget.style.display = 'none'; e.currentTarget.nextElementSibling?.classList.remove('hidden') }} />
+               <Camera size={40} className="text-[#D4A373] relative z-10 hidden" />
+             </div>
+          </div>
+          <h1 className="text-4xl sm:text-[2.75rem] font-serif font-bold text-transparent bg-clip-text bg-gradient-to-r from-[#D4A373] via-[#FCF6BA] to-[#D4A373] drop-shadow-lg tracking-wide py-1 transform -translate-y-4">
+            PicPhotoShare
+          </h1>
+          <p className="text-white/90 font-medium text-sm px-4 leading-relaxed tracking-wide transform -translate-y-4">
+             Onde cada momento vira uma celebração compartilhada!
+          </p>
         </div>
 
-        {/* 2. Login Form */}
-        <form onSubmit={handleLogin} className="space-y-6">
-          <div className="space-y-4">
-            <div>
-              <label htmlFor="name" className="block text-base font-medium text-gray-700 mb-1 text-center">
-                Nome e Sobrenome
-              </label>
+        <div className="w-full bg-white/[0.08] backdrop-blur-2xl border border-[#D4AF37] rounded-[2.5rem] p-6 shadow-[0_0_25px_rgba(212,175,55,0.4),0_15px_40px_rgba(0,0,0,0.5)] mb-8 relative">
+          
+          <form onSubmit={handleLogin} className="space-y-4 flex flex-col items-center w-full mt-2">
+            
+            <div className="relative w-full group">
+              <User size={18} className="absolute left-5 top-1/2 -translate-y-1/2 text-[#D4A373]/70 group-focus-within:text-[#D4A373] transition-colors" />
               <input
                 id="name"
                 type="text"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-[#5A5A40] focus:border-transparent outline-none transition-all"
-                placeholder="Digite seu nome e sobrenome"
+                className="w-full pl-12 pr-4 py-3.5 rounded-full bg-white/[0.05] border border-white/10 text-white placeholder-white/40 focus:bg-white/[0.08] focus:border-[#D4A373]/50 focus:ring-1 focus:ring-[#D4A373]/50 outline-none transition-all text-[15px]"
+                placeholder="Nome Completo"
                 required
               />
             </div>
-            <div>
-              <label htmlFor="code" className="block text-base font-medium text-gray-700 mb-1 text-center">
-                Código de Convite
-              </label>
-              <div className="flex gap-2">
-                <input
-                  id="code"
-                  type="text"
-                  value={inviteCode}
-                  onChange={(e) => setInviteCode(e.target.value)}
-                  className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-[#5A5A40] focus:border-transparent outline-none transition-all"
-                  placeholder="Digite o código"
-                  required
-                />
+
+            <div className="relative w-full group">
+              <User size={18} className="absolute left-5 top-1/2 -translate-y-1/2 text-[#D4A373]/70 group-focus-within:text-[#D4A373] transition-colors" />
+              <input
+                id="phone"
+                type="tel"
+                value={phone}
+                onChange={handlePhoneChange}
+                className="w-full pl-12 pr-4 py-3.5 rounded-full bg-white/[0.05] border border-white/10 text-white placeholder-white/40 focus:bg-white/[0.08] focus:border-[#D4A373]/50 focus:ring-1 focus:ring-[#D4A373]/50 outline-none transition-all text-[15px]"
+                placeholder="Telefone ex: (11)99999-9999"
+                required
+              />
+            </div>
+            
+            <div className="relative w-full group">
+              <Lock size={18} className="absolute left-5 top-1/2 -translate-y-1/2 text-[#D4A373]/70 group-focus-within:text-[#D4A373] transition-colors" />
+              <input
+                id="pin"
+                type={showPin ? "text" : "password"}
+                pattern="\d*"
+                maxLength={4}
+                value={pin}
+                onChange={(e) => {
+                  const input = e.target.value;
+                  if (input.length < pin.length) {
+                    setPin(input);
+                    return;
+                  }
+                  const val = input.replace(/\D/g, '');
+                  if (val.length <= 4) setPin(val);
+                }}
+                className="w-full pl-12 pr-12 py-3.5 rounded-full bg-white/[0.05] border border-white/10 text-white placeholder-white/40 focus:bg-white/[0.08] focus:border-[#D4A373]/50 focus:ring-1 focus:ring-[#D4A373]/50 outline-none transition-all text-[15px]"
+                placeholder="PIN (4 números)"
+                required
+              />
+              <button
+                type="button"
+                className="absolute right-5 top-1/2 -translate-y-1/2 text-white/50 hover:text-white transition-colors"
+                onClick={() => setShowPin(!showPin)}
+              >
+                {showPin ? <EyeOff size={18} /> : <Eye size={18} />}
+              </button>
+            </div>
+            <p className="text-white/60 text-xs px-2 text-center">
+              No primeiro acesso, crie um PIN de <strong className="text-white/80">exatamente 4 números</strong>. Guarde-o para os próximos acessos.
+            </p>
+
+            <div className="relative w-full group">
+              <Ticket size={18} className="absolute left-5 top-1/2 -translate-y-1/2 text-[#D4A373]/70 group-focus-within:text-[#D4A373] transition-colors" />
+              <input
+                id="code"
+                type="text"
+                value={inviteCode}
+                onChange={(e) => setInviteCode(e.target.value)}
+                className="w-full pl-12 pr-4 py-3.5 rounded-full bg-white/[0.05] border border-white/10 text-white placeholder-white/40 focus:bg-white/[0.08] focus:border-[#D4A373]/50 focus:ring-1 focus:ring-[#D4A373]/50 outline-none transition-all text-[15px]"
+                placeholder="Código do Convite"
+                required
+              />
+            </div>
+
+            {error && (
+              <div className="p-3 bg-red-900/30 text-rose-300 rounded-2xl text-[13px] border border-rose-500/30 flex flex-col gap-2 w-full mt-2 backdrop-blur-md">
+                <div className="flex items-start gap-2">
+                  <AlertCircle size={16} className="shrink-0 mt-0.5 text-rose-400" />
+                  <span>{error}</span>
+                </div>
+              </div>
+            )}
+
+            <div className="pt-2 w-full">
+              <div className="border border-white/10 rounded-[1.25rem] p-3 bg-gradient-to-b from-white/[0.02] to-white/[0.05]">
                 <button
                   type="button"
                   onClick={() => setIsScanning(true)}
-                  className="px-4 py-3 bg-gray-100 text-gray-600 rounded-xl hover:bg-gray-200 transition-colors flex items-center justify-center shrink-0"
-                  title="Ler QR Code"
+                  className="w-full bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl py-4 flex items-center justify-center gap-3 transition-colors text-white/90 text-[15px] tracking-wide"
                 >
-                  <QrCode size={24} />
+                  <QrCode size={22} className="text-[#D4A373]" />
+                  Ler QR Code
                 </button>
               </div>
             </div>
-          </div>
 
-          {error && (
-            <div className="p-4 bg-red-50 text-red-600 rounded-2xl text-sm border border-red-100 flex flex-col gap-3">
-              <div className="flex items-start gap-2">
-                <AlertCircle size={18} className="shrink-0 mt-0.5" />
-                <span>{error}</span>
+            <button
+              type="submit"
+              disabled={loading}
+              className="relative w-full mt-6 rounded-full p-[2px] bg-gradient-to-tr from-[#B38728] via-[#FCF6BA] to-[#BF953F] shadow-[0_4px_25px_rgba(191,149,63,0.4)] hover:shadow-[0_6px_30px_rgba(191,149,63,0.6)] transition-all active:scale-[0.98] group"
+            >
+              <div className="w-full h-full bg-gradient-to-b from-zinc-800 via-black to-black rounded-full py-4 flex items-center justify-center shadow-[inset_0_2px_15px_rgba(0,0,0,0.8)]">
+                <span className="text-base font-bold uppercase tracking-[0.15em] bg-clip-text text-transparent bg-gradient-to-r from-[#BF953F] via-[#FCF6BA] to-[#B38728] drop-shadow-[0_2px_2px_rgba(0,0,0,1)] group-hover:brightness-125 transition-all">
+                  {loading ? 'Aguarde...' : 'ENTRAR'}
+                </span>
               </div>
-              {error.includes('câmera') && (
-                <div className="flex flex-wrap gap-2 mt-1">
-                  <button 
-                    onClick={() => {
-                      setError('');
-                      setIsScanning(true);
-                    }}
-                    className="px-3 py-1.5 bg-red-100 hover:bg-red-200 text-red-700 rounded-lg text-[10px] font-bold transition-colors flex items-center gap-1.5"
-                  >
-                    <RefreshCcw size={12} />
-                    Tentar Novamente
-                  </button>
-                  <a 
-                    href={window.location.href} 
-                    target="_blank" 
-                    rel="noopener noreferrer"
-                    className="px-3 py-1.5 bg-white border border-red-200 hover:bg-red-50 text-red-700 rounded-lg text-[10px] font-bold transition-colors flex items-center gap-1.5"
-                  >
-                    <ExternalLink size={12} />
-                    Abrir em Nova Aba
-                  </a>
-                </div>
-              )}
-              {error.includes('câmera') && (
-                <button 
-                  type="button"
-                  onClick={() => setShowTroubleshooting(true)}
-                  className="text-[10px] text-red-500 hover:text-red-700 font-medium flex items-center justify-center gap-1 transition-colors"
-                >
-                  <HelpCircle size={12} />
-                  Ver guia passo a passo para liberar a câmera
-                </button>
-              )}
-            </div>
-          )}
-
-          {showTroubleshooting && (
-            <div className="fixed inset-0 bg-black/60 backdrop-blur-md z-[60] flex items-center justify-center p-4">
-              <div className="bg-white rounded-[2.5rem] w-full max-w-md overflow-hidden shadow-2xl animate-in zoom-in duration-300">
-                <div className="p-6 border-b border-gray-100 flex items-center justify-between">
-                  <h3 className="font-bold text-xl text-gray-900">Como liberar a câmera</h3>
-                  <button type="button" onClick={() => setShowTroubleshooting(false)} className="p-2 hover:bg-gray-100 rounded-full transition-colors">
-                    <X size={20} />
-                  </button>
-                </div>
-                <div className="p-8 space-y-6 overflow-y-auto max-h-[70vh]">
-                  <div className="space-y-4">
-                    <div className="flex gap-4">
-                      <div className="w-8 h-8 rounded-full bg-[#D4A373] text-white flex items-center justify-center font-bold shrink-0">1</div>
-                      <div>
-                        <p className="font-bold text-gray-800">Clique no Cadeado</p>
-                        <p className="text-sm text-gray-500">Na barra de endereços do navegador (onde fica o link), clique no ícone de cadeado ou de configurações.</p>
-                      </div>
-                    </div>
-                    <div className="flex gap-4">
-                      <div className="w-8 h-8 rounded-full bg-[#D4A373] text-white flex items-center justify-center font-bold shrink-0">2</div>
-                      <div>
-                        <p className="font-bold text-gray-800">Ative a Câmera</p>
-                        <p className="text-sm text-gray-500">Procure por "Câmera" e mude a chave para "Permitir" ou "Ativado".</p>
-                      </div>
-                    </div>
-                    <div className="flex gap-4">
-                      <div className="w-8 h-8 rounded-full bg-[#D4A373] text-white flex items-center justify-center font-bold shrink-0">3</div>
-                      <div>
-                        <p className="font-bold text-gray-800">Recarregue a Página</p>
-                        <p className="text-sm text-gray-500">Clique em "Tentar Novamente" ou atualize a página para aplicar as mudanças.</p>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="p-4 bg-blue-50 rounded-2xl border border-blue-100">
-                    <p className="text-xs text-blue-700 font-medium flex items-center gap-2 mb-2">
-                      <ExternalLink size={14} />
-                      Dica para iPhone/Safari:
-                    </p>
-                    <p className="text-xs text-blue-600 leading-relaxed">
-                      Vá em Ajustes {'>'} Safari {'>'} Câmera e mude para "Permitir". Certifique-se também de que não está no modo de Navegação Privada.
-                    </p>
-                  </div>
-
-                  <button 
-                    type="button"
-                    onClick={() => setShowTroubleshooting(false)}
-                    className="w-full bg-gray-900 text-white py-4 rounded-2xl font-bold hover:bg-black transition-all active:scale-95"
-                  >
-                    Entendi, vou tentar
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
-
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full bg-[#D4A373] text-white rounded-full py-3 font-medium hover:bg-[#C39362] transition-colors disabled:opacity-50"
-          >
-            {loading ? 'Entrando...' : 'Entrar na Galeria'}
-          </button>
-        </form>
-
-        {/* 3. Video (9:16 format) */}
-        {settings?.eventVideoUrl && (
-          <div className="w-full aspect-[9/16] mx-auto rounded-2xl overflow-hidden shadow-lg mt-6 bg-black">
-            <video 
-              src={settings.eventVideoUrl} 
-              autoPlay 
-              loop 
-              muted 
-              playsInline
-              preload="auto"
-              className="w-full h-full object-cover" 
-            />
-          </div>
-        )}
-
-        {isScanning && (
-          <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
-            <div className="bg-white rounded-3xl w-full max-w-md overflow-hidden">
-              <div className="p-4 border-b flex justify-between items-center">
-                <h3 className="font-medium text-lg">Ler QR Code</h3>
-                <button onClick={() => setIsScanning(false)} className="p-2 hover:bg-gray-100 rounded-full">
-                  <X size={20} />
-                </button>
-              </div>
-              <div className="p-4">
-                <div id="reader" className="w-full rounded-xl overflow-hidden"></div>
-                <p className="text-sm text-center text-gray-500 mt-4">
-                  Aponte a câmera para o QR Code do evento
-                </p>
-              </div>
-            </div>
-          </div>
-        )}
-        <div className="mt-12 w-full">
-          <Footer />
-        </div>
+            </button>
+          </form>
         </div>
       </div>
+      
+      <div className="w-full z-10 shrink-0 relative mt-auto pb-4">
+        <Footer isLogin={true} />
+      </div>
+
+      {isScanning && (
+        <div className="fixed inset-0 z-50 bg-black/95 flex flex-col items-center justify-center p-4 backdrop-blur-md">
+          <button
+            onClick={() => setIsScanning(false)}
+            className="absolute top-6 right-6 p-3 bg-white/10 rounded-full text-white hover:bg-white/20 transition-colors"
+          >
+            <X size={24} />
+          </button>
+          
+          <div className="w-full max-w-sm">
+            <h3 className="text-white text-center font-medium text-lg mb-6 tracking-wide uppercase">Ler QR Code</h3>
+            <div className="relative rounded-[2rem] overflow-hidden border-2 border-[#D4A373]/50 shadow-[0_0_30px_rgba(212,163,115,0.2)] bg-black">
+              <div id="reader" className="w-full min-h-[300px]"></div>
+            </div>
+            <p className="text-center text-white/50 text-sm mt-6 font-light">
+              Aponte a câmera para o QR Code do convite
+            </p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -4,18 +4,14 @@ import { ChevronLeft, ChevronRight, Play, Pause, Image as ImageIcon, Video, Maxi
 import EmptyState from './EmptyState';
 
 interface SlideshowProps {
-  photos: Media[];
-  videos: Media[];
+  media: Media[];
 }
 
-export default function Slideshow({ photos, videos }: SlideshowProps) {
-  const [activeTab, setActiveTab] = useState<'photos' | 'videos'>('photos');
+export default function Slideshow({ media }: SlideshowProps) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isPlaying, setIsPlaying] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
-
-  const currentMediaList = activeTab === 'photos' ? photos : videos;
 
   useEffect(() => {
     const handleFullscreenChange = () => {
@@ -36,29 +32,28 @@ export default function Slideshow({ photos, videos }: SlideshowProps) {
   };
 
   useEffect(() => {
-    setCurrentIndex(0);
-    setIsPlaying(true);
-  }, [activeTab]);
-
-  useEffect(() => {
     let interval: NodeJS.Timeout;
-    if (isPlaying && currentMediaList.length > 0 && activeTab === 'photos') {
-      interval = setInterval(() => {
-        setCurrentIndex((prev) => (prev + 1) % currentMediaList.length);
-      }, 3000); // 3 seconds per slide
+    if (isPlaying && media.length > 0) {
+      const currentMediaItem = media[currentIndex];
+      // Only auto-advance if it's a photo, videos will advance on handleNext when ended.
+      if (currentMediaItem?.type === 'photo') {
+        interval = setInterval(() => {
+          setCurrentIndex((prev) => (prev + 1) % media.length);
+        }, 3000); // 3 seconds per photo
+      }
     }
     return () => clearInterval(interval);
-  }, [isPlaying, currentMediaList.length, activeTab]);
+  }, [isPlaying, media.length, currentIndex]);
 
   const handleNext = () => {
-    setCurrentIndex((prev) => (prev + 1) % currentMediaList.length);
+    setCurrentIndex((prev) => (prev + 1) % media.length);
   };
 
   const handlePrev = () => {
-    setCurrentIndex((prev) => (prev - 1 + currentMediaList.length) % currentMediaList.length);
+    setCurrentIndex((prev) => (prev - 1 + media.length) % media.length);
   };
 
-  if (photos.length === 0 && videos.length === 0) {
+  if (media.length === 0) {
     return (
       <EmptyState 
         icon={ImageIcon}
@@ -67,46 +62,25 @@ export default function Slideshow({ photos, videos }: SlideshowProps) {
     );
   }
 
-  const currentMedia = currentMediaList[currentIndex];
+  const currentMedia = media[currentIndex];
+
+  if (!currentMedia) {
+    return (
+      <div className="text-center py-20 text-gray-400 bg-white rounded-[2rem] shadow-sm border border-gray-100">
+        <p className="text-lg font-medium text-gray-600">Carregando mídia...</p>
+      </div>
+    );
+  }
 
   return (
-    <div className="max-w-5xl mx-auto py-8 px-6">
-      <div className="flex justify-center gap-4 mb-8">
-        <button
-          onClick={() => setActiveTab('photos')}
-          className={`px-6 py-3 rounded-full font-medium flex items-center gap-2 transition-all ${
-            activeTab === 'photos' 
-              ? 'bg-[#D4A373] text-white shadow-md' 
-              : 'bg-white text-gray-500 hover:bg-pink-50 border border-gray-200'
-          }`}
-        >
-          <ImageIcon size={18} />
-          Fotos ({photos.length})
-        </button>
-        <button
-          onClick={() => setActiveTab('videos')}
-          className={`px-6 py-3 rounded-full font-medium flex items-center gap-2 transition-all ${
-            activeTab === 'videos' 
-              ? 'bg-[#D4A373] text-white shadow-md' 
-              : 'bg-white text-gray-500 hover:bg-pink-50 border border-gray-200'
-          }`}
-        >
-          <Video size={18} />
-          Vídeos ({videos.length})
-        </button>
-      </div>
-
-      {currentMediaList.length === 0 ? (
-        <div className="text-center py-20 text-gray-400 bg-white rounded-[2rem] shadow-sm border border-gray-100">
-          <p className="text-lg font-medium text-gray-600">Nenhum {activeTab === 'photos' ? 'foto' : 'vídeo'} disponível.</p>
-        </div>
-      ) : (
-        <div 
-          ref={containerRef}
-          className="relative bg-black rounded-[2rem] overflow-hidden shadow-2xl aspect-video flex items-center justify-center group cursor-pointer"
-          onClick={toggleFullscreen}
-        >
-          {activeTab === 'photos' ? (
+    <div className="max-w-5xl mx-auto">
+      <div 
+        id="slideshow-container"
+        ref={containerRef}
+        className="relative bg-black rounded-[2rem] overflow-hidden shadow-2xl aspect-video flex items-center justify-center group cursor-pointer"
+        onClick={toggleFullscreen}
+      >
+        {(currentMedia.type === 'photo') ? (
             <img 
               src={`/api/image/${currentMedia.driveFileId}`} 
               alt={currentMedia.title}
@@ -114,18 +88,26 @@ export default function Slideshow({ photos, videos }: SlideshowProps) {
               referrerPolicy="no-referrer"
             />
           ) : (
-            <video 
-              src={currentMedia.driveViewLink?.includes('firebasestorage') ? currentMedia.driveViewLink : `/api/video/${currentMedia.driveFileId}`} 
-              controls={!isPlaying}
-              autoPlay={isPlaying}
-              muted={isPlaying}
-              onEnded={handleNext}
-              className="w-full h-full object-contain"
-            />
+            (currentMedia.driveViewLink?.includes('firebasestorage') || currentMedia.driveFileId) ? (
+              <video 
+                src={currentMedia.driveViewLink?.includes('firebasestorage') ? currentMedia.driveViewLink : `/api/video/${currentMedia.driveFileId}`} 
+                controls={!isPlaying}
+                autoPlay={isPlaying}
+                muted={isPlaying}
+                playsInline
+                onEnded={handleNext}
+                className="w-full h-full object-contain"
+              />
+            ) : (
+              <div className="text-gray-500 bg-white/10 rounded-xl p-8 flex flex-col items-center justify-center h-full w-full">
+                 <Video size={48} className="mb-4 opacity-50" />
+                 <p>Vídeo indisponível</p>
+              </div>
+            )
           )}
 
           {/* Controls Overlay */}
-          <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex flex-col justify-end p-6 pointer-events-none">
+          <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent lg:opacity-0 lg:group-hover:opacity-100 transition-opacity duration-300 flex flex-col justify-end p-6 pointer-events-none">
             <div className="flex items-center justify-between text-white pointer-events-auto">
               <div>
                 <h3 className="text-xl font-medium">{currentMedia.author}</h3>
@@ -162,18 +144,17 @@ export default function Slideshow({ photos, videos }: SlideshowProps) {
           </div>
           
           {/* Progress Indicators */}
-          <div className="absolute top-4 left-0 right-0 flex justify-center gap-2 px-6">
-            {currentMediaList.map((_, idx) => (
-              <div 
-                key={idx} 
-                className={`h-1.5 rounded-full transition-all duration-300 ${
-                  idx === currentIndex ? 'w-8 bg-white' : 'w-2 bg-white/40'
-                }`}
-              />
-            ))}
-          </div>
+        <div className="absolute top-4 left-0 right-0 flex justify-center gap-2 px-6">
+          {media.map((_, idx) => (
+            <div 
+              key={idx} 
+              className={`h-1.5 rounded-full transition-all duration-300 ${
+                idx === currentIndex ? 'w-8 bg-white' : 'w-2 bg-white/40'
+              }`}
+            />
+          ))}
         </div>
-      )}
+      </div>
     </div>
   );
 }

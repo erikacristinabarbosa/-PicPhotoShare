@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { auth } from '../firebase';
+import { auth, db } from '../firebase';
 import { signInWithEmailAndPassword } from 'firebase/auth';
+import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 import Footer from './Footer';
 
 export default function AdminLogin() {
@@ -17,7 +18,13 @@ export default function AdminLogin() {
     setLoading(true);
 
     try {
-      await signInWithEmailAndPassword(auth, email, password);
+      const userCredential = await signInWithEmailAndPassword(auth, email, password);
+      // Log the admin access
+      await addDoc(collection(db, 'admin_logs'), {
+        adminId: userCredential.user.uid,
+        email: userCredential.user.email,
+        timestamp: serverTimestamp(),
+      });
       navigate('/admin');
     } catch (err: any) {
       setError('Credenciais inválidas.');
@@ -27,7 +34,7 @@ export default function AdminLogin() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center p-4 bg-gray-900">
+    <div className="min-h-screen flex flex-col items-center justify-center p-4 bg-gray-900 font-sans">
       <div className="max-w-md w-full bg-white rounded-3xl shadow-xl p-8 space-y-8">
         <div className="text-center space-y-2">
           <h1 className="text-2xl font-semibold text-gray-900">Acesso Administrativo</h1>
@@ -62,9 +69,9 @@ export default function AdminLogin() {
           <button
             type="submit"
             disabled={loading}
-            className="w-full bg-gray-900 text-white rounded-full py-3 font-medium hover:bg-black transition-colors disabled:opacity-50"
+            className="w-full menu-btn-active bg-[#D4A373] text-white rounded-full py-3 font-medium disabled:opacity-50 transition-all flex items-center justify-center p-0"
           >
-            {loading ? 'Entrando...' : 'Entrar'}
+            <span className="font-bold">{loading ? 'Entrando...' : 'Entrar'}</span>
           </button>
         </form>
       </div>

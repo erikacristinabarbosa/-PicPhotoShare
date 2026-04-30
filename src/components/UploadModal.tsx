@@ -4,7 +4,8 @@ import { db } from '../firebase';
 import { collection, addDoc, serverTimestamp, getDoc, doc } from 'firebase/firestore';
 import { X, UploadCloud, Image as ImageIcon, Video, Loader2, Camera, CheckCircle, AlertCircle, RefreshCcw, ExternalLink, HelpCircle, ChevronRight } from 'lucide-react';
 import { Settings } from '../types';
-import imageCompression from 'browser-image-compression';
+import { compressImage } from '../lib/imageCompression';
+import Portal from './Portal';
 
 type Mode = 'initial' | 'gallery' | 'camera' | 'preview';
 
@@ -181,9 +182,14 @@ export default function UploadModal({ onClose, isHostAlbum = false }: { onClose:
     } catch (err: any) {
       console.error("Error accessing camera:", err);
       if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
-        setError("Acesso à câmera negado. Clique no ícone de cadeado na barra de endereços, mude 'Câmera' para 'Permitir' e clique em 'Tentar Novamente'. Ou abra em uma nova aba.");
+        const isAndroid = /Android/i.test(navigator.userAgent);
+        if (isAndroid) {
+          setError("Câmera bloqueada. No Android, para liberar a câmera, toque nos 3 pontos do navegador e escolha 'Abrir no Chrome' (ou seu navegador), e então permita o uso da câmera na mensagem do sistema. O navegador embutido do Instagram/WhatsApp normalmente bloqueia a câmera do evento.");
+        } else {
+          setError("Acesso à câmera negado. Clique no ícone de cadeado na barra de endereços para permitir a câmera.");
+        }
       } else {
-        setError("Não foi possível acessar a câmera. Certifique-se de que você deu permissão no navegador. Se estiver no computador, tente abrir o app em uma nova aba.");
+        setError("Não foi possível acessar a câmera do seu dispositivo.");
       }
     }
   };
@@ -295,19 +301,17 @@ export default function UploadModal({ onClose, isHostAlbum = false }: { onClose:
           
           if (isImage) {
             try {
-              const options = {
-                maxSizeMB: 1.5,
-                maxWidthOrHeight: 1920,
-                useWebWorker: true,
-                initialQuality: 0.8
-              };
-              processedFile = await imageCompression(file, options);
-              // Ensure we don't lose the original filename
-              processedFile = new File([processedFile], file.name, { type: processedFile.type });
+              processedFile = await compressImage(file, 1200, 0.8);
             } catch (err) {
               console.error("Compression error:", err);
               // fallback to original
             }
+          }
+
+          // Protect proxy limits (32MB limit for Cloud Run HTTP/1.1 without chunks)
+          if (processedFile.size > 25 * 1024 * 1024) { 
+             setError(`O arquivo ${file.name} excedeu o limite seguro de tamanho.`);
+             continue;
           }
 
           newUploadFiles.push({
@@ -332,14 +336,22 @@ export default function UploadModal({ onClose, isHostAlbum = false }: { onClose:
     setUploadFiles(prev => prev.filter(f => f.id !== id));
   };
 
-  const uploadSingleFile = (fileObj: UploadFile, requireApproval: boolean, retryCount = 0): Promise<void> => {
-    return new Promise((resolve, reject) => {
-      const xhr = new XMLHttpRequest();
-      const formData = new FormData();
-      formData.append('file', fileObj.file);
 
-      // Add a timeout to the XHR
-      xhr.timeout = 120000; // 2 minutes
+  const uploadSingleFile = async (fileObj: UploadFile, requireApproval: boolean, retryCount = 0): Promise<void> => {
+    try {
+      // Compress image before uploading
+      let fileToUpload = fileObj.file;
+      if (fileToUpload.type.startsWith('image/')) {
+        fileToUpload = await compressImage(fileToUpload);
+      }
+
+      return new Promise<void>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        const formData = new FormData();
+        formData.append('file', fileToUpload);
+
+        // Add a timeout to the XHR
+        xhr.timeout = 160000; // 2.6 minutes
 
       xhr.upload.onprogress = (event) => {
         if (event.lengthComputable) {
@@ -361,7 +373,7 @@ export default function UploadModal({ onClose, isHostAlbum = false }: { onClose:
             const driveData = JSON.parse(responseText);
             
             // Update session avatar if user doesn't have one and this is a photo
-            if (!authorPhotoUrl && !fileObj.file.type.startsWith('video/') && driveData.thumbnailLink) {
+            if (!authorPhotoUrl && !fileObj.file.type.startsWith('video/') && driveData?.thumbnailLink) {
               setAuthorPhotoUrl(driveData.thumbnailLink);
             }
 
@@ -370,14 +382,19 @@ export default function UploadModal({ onClose, isHostAlbum = false }: { onClose:
               type: fileObj.file.type.startsWith('video/') ? 'video' : 'photo',
               author: guestName,
               authorSessionId: sessionId,
-              driveFileId: driveData.id,
-              driveViewLink: driveData.webViewLink,
-              thumbnailLink: driveData.thumbnailLink || null,
+              driveFileId: driveData?.id,
+              driveViewLink: driveData?.webViewLink,
+              thumbnailLink: driveData?.thumbnailLink || null,
               status: isHostAlbum ? 'approved' : (requireApproval ? 'pending' : 'approved'),
               timestamp: serverTimestamp(),
               likesCount: 0,
               isHostAlbum: isHostAlbum
             });
+            
+            if (!isHostAlbum) {
+              // Points are dispatched after the modal processes all files
+            }
+            
             setUploadFiles(prev => prev.map(f => 
               f.id === fileObj.id ? { ...f, progress: 100, status: 'done' } : f
             ));
@@ -426,22 +443,47 @@ export default function UploadModal({ onClose, isHostAlbum = false }: { onClose:
       };
 
       xhr.ontimeout = () => {
-        setUploadFiles(prev => prev.map(f => 
-          f.id === fileObj.id ? { ...f, status: 'error', errorMsg: 'Tempo de envio esgotado (Timeout). Tente novamente.' } : f
-        ));
-        reject(new Error('Tempo de envio esgotado'));
+        if (retryCount < 4) {
+          const waitTime = Math.pow(2, retryCount) * 2000 + 1000;
+          setUploadFiles(prev => prev.map(f => 
+            f.id === fileObj.id ? { ...f, status: 'queued', errorMsg: `Tempo esgotado. Tentando de novo em ${Math.round(waitTime/1000)}s... (${retryCount + 1}/5)` } : f
+          ));
+          setTimeout(() => {
+            uploadSingleFile(fileObj, requireApproval, retryCount + 1).then(resolve).catch(reject);
+          }, waitTime);
+        } else {
+          setUploadFiles(prev => prev.map(f => 
+            f.id === fileObj.id ? { ...f, status: 'error', errorMsg: 'Tempo de envio esgotado após várias tentativas.' } : f
+          ));
+          reject(new Error('Tempo de envio esgotado'));
+        }
       };
 
       xhr.onerror = () => {
-        setUploadFiles(prev => prev.map(f => 
-          f.id === fileObj.id ? { ...f, status: 'error', errorMsg: 'Erro de rede' } : f
-        ));
-        reject(new Error('Erro de rede'));
+        if (retryCount < 4) {
+          const waitTime = Math.pow(2, retryCount) * 2000 + 1000;
+          setUploadFiles(prev => prev.map(f => 
+            f.id === fileObj.id ? { ...f, status: 'queued', errorMsg: `Erro de rede. Tentando de novo em ${Math.round(waitTime/1000)}s... (${retryCount + 1}/5)` } : f
+          ));
+          setTimeout(() => {
+            uploadSingleFile(fileObj, requireApproval, retryCount + 1).then(resolve).catch(reject);
+          }, waitTime);
+        } else {
+          setUploadFiles(prev => prev.map(f => 
+            f.id === fileObj.id ? { ...f, status: 'error', errorMsg: 'Erro de rede ou arquivo muito grande: O servidor encerrou a conexão.' } : f
+          ));
+          reject(new Error('Erro de conexão com o servidor'));
+        }
       };
 
       xhr.open('POST', '/api/upload', true);
       xhr.send(formData);
     });
+    } catch (err) {
+      console.error("Compression error:", err);
+      // Fallback inside promise catch handled internally, but just in case
+      return Promise.reject(err);
+    }
   };
 
   const handleGalleryUpload = async () => {
@@ -452,11 +494,11 @@ export default function UploadModal({ onClose, isHostAlbum = false }: { onClose:
     try {
       const settingsDoc = await getDoc(doc(db, 'settings', 'global'));
       const settingsData = settingsDoc.data();
-      if (!settingsData?.uploadsEnabled) {
+      if (!isHostAlbum && !settingsData?.uploadsEnabled) {
         throw new Error('O envio de novas fotos está desativado no momento.');
       }
 
-      const requireApproval = settingsData.requireApproval;
+      const requireApproval = isHostAlbum ? false : settingsData?.requireApproval;
 
       // Mark all pending as queued
       setUploadFiles(prev => prev.map(f => f.status === 'pending' ? { ...f, status: 'queued' } : f));
@@ -481,15 +523,20 @@ export default function UploadModal({ onClose, isHostAlbum = false }: { onClose:
 
       setUploadFiles(currentFiles => {
         const hasErrors = currentFiles.some(f => f.status === 'error');
+        setUploading(false);
         if (!hasErrors) {
           if (requireApproval) {
             setSuccessMessage('Sua foto aparecerá no mural quando for aprovada pelo administrador. Ela já está disponível na guia "Minhas Fotos".');
-            setTimeout(() => handleClose(), 4000);
+            setTimeout(() => {
+              if (!isHostAlbum && sessionId) window.dispatchEvent(new CustomEvent('points-earned', { detail: { actionName: 'Enviou Mídia', points: 10 * filesToUpload.length } }));
+              onClose();
+            }, 4000);
           } else {
-            setTimeout(() => handleClose(), 1500);
+            setTimeout(() => {
+              if (!isHostAlbum && sessionId) window.dispatchEvent(new CustomEvent('points-earned', { detail: { actionName: 'Enviou Mídia', points: 10 * filesToUpload.length } }));
+              onClose();
+            }, 100);
           }
-        } else {
-          setUploading(false);
         }
         return currentFiles;
       });
@@ -507,11 +554,11 @@ export default function UploadModal({ onClose, isHostAlbum = false }: { onClose:
     try {
       const settingsDoc = await getDoc(doc(db, 'settings', 'global'));
       const settingsData = settingsDoc.data();
-      if (!settingsData?.uploadsEnabled) {
+      if (!isHostAlbum && !settingsData?.uploadsEnabled) {
         throw new Error('O envio de novas fotos está desativado no momento.');
       }
 
-      const requireApproval = settingsData.requireApproval;
+      const requireApproval = isHostAlbum ? false : settingsData?.requireApproval;
       let file: File;
 
       if (capturedVideoBlob) {
@@ -566,11 +613,18 @@ export default function UploadModal({ onClose, isHostAlbum = false }: { onClose:
 
       await uploadSingleFile(fileObj, requireApproval);
       
+      setUploading(false);
       if (requireApproval) {
         setSuccessMessage('Sua foto aparecerá no mural quando for aprovada pelo administrador. Ela já está disponível na guia "Minhas Fotos".');
-        setTimeout(() => handleClose(), 4000);
+        setTimeout(() => {
+          if (!isHostAlbum && sessionId) window.dispatchEvent(new CustomEvent('points-earned', { detail: { actionName: 'Enviou Mídia', points: 10 } }));
+          onClose();
+        }, 4000);
       } else {
-        setTimeout(() => handleClose(), 1500);
+        setTimeout(() => {
+          if (!isHostAlbum && sessionId) window.dispatchEvent(new CustomEvent('points-earned', { detail: { actionName: 'Enviou Mídia', points: 10 } }));
+          onClose();
+        }, 100);
       }
     } catch (err: any) {
       setError(err.message || 'Ocorreu um erro durante o upload.');
@@ -579,8 +633,11 @@ export default function UploadModal({ onClose, isHostAlbum = false }: { onClose:
   };
 
   return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-md z-[9999] flex items-center justify-center p-0 sm:p-4 overscroll-behavior-contain">
-      <div className="bg-white rounded-none sm:rounded-[2rem] w-full max-w-lg overflow-hidden shadow-2xl flex flex-col h-full sm:h-auto sm:max-h-[90vh] border border-pink-50">
+    <Portal>
+    <div className="fixed inset-0 z-[9999] overflow-y-auto overscroll-none">
+      <div className="fixed inset-0 bg-black/60 backdrop-blur-md" onClick={() => !uploading && handleClose()} />
+      <div className="flex min-h-full items-center justify-center p-0 sm:p-4">
+        <div className="bg-white rounded-none sm:rounded-[2rem] w-full max-w-lg overflow-hidden shadow-2xl flex flex-col h-[100dvh] sm:h-auto sm:max-h-[90vh] border border-pink-50 relative">
         <div className="p-4 sm:p-6 border-b border-pink-50 flex items-center justify-between bg-white/50 shrink-0">
           <div className="flex items-center gap-3">
             <h2 className="text-lg sm:text-xl font-outfit text-gray-800">
@@ -642,8 +699,10 @@ export default function UploadModal({ onClose, isHostAlbum = false }: { onClose:
           )}
 
           {showTroubleshooting && (
-            <div className="fixed inset-0 bg-black/60 backdrop-blur-md z-[60] flex items-center justify-center p-4">
-              <div className="bg-white rounded-[2.5rem] w-full max-w-md overflow-hidden shadow-2xl animate-in zoom-in duration-300">
+            <div className="fixed inset-0 z-[10010] overflow-y-auto">
+              <div className="fixed inset-0 bg-black/60 backdrop-blur-md" onClick={() => setShowTroubleshooting(false)} />
+              <div className="flex min-h-full items-center justify-center p-4">
+                <div className="bg-white rounded-[2.5rem] w-full max-w-md overflow-hidden shadow-2xl relative animate-in zoom-in duration-300">
                 <div className="p-6 border-b border-gray-100 flex items-center justify-between">
                   <h3 className="font-bold text-xl text-gray-900">Como liberar a câmera</h3>
                   <button onClick={() => setShowTroubleshooting(false)} className="p-2 hover:bg-gray-100 rounded-full transition-colors">
@@ -653,21 +712,21 @@ export default function UploadModal({ onClose, isHostAlbum = false }: { onClose:
                 <div className="p-8 space-y-6 overflow-y-auto max-h-[70vh]">
                   <div className="space-y-4">
                     <div className="flex gap-4">
-                      <div className="w-8 h-8 rounded-full bg-[#D4A373] text-white flex items-center justify-center font-bold shrink-0">1</div>
+                      <div className="w-8 h-8 rounded-full btn-gold shadow-md flex items-center justify-center font-bold shrink-0">1</div>
                       <div>
                         <p className="font-bold text-gray-800">Clique no Cadeado</p>
                         <p className="text-sm text-gray-500">Na barra de endereços do navegador (onde fica o link), clique no ícone de cadeado ou de configurações.</p>
                       </div>
                     </div>
                     <div className="flex gap-4">
-                      <div className="w-8 h-8 rounded-full bg-[#D4A373] text-white flex items-center justify-center font-bold shrink-0">2</div>
+                      <div className="w-8 h-8 rounded-full btn-gold shadow-md flex items-center justify-center font-bold shrink-0">2</div>
                       <div>
                         <p className="font-bold text-gray-800">Ative a Câmera</p>
                         <p className="text-sm text-gray-500">Procure por "Câmera" e mude a chave para "Permitir" ou "Ativado".</p>
                       </div>
                     </div>
                     <div className="flex gap-4">
-                      <div className="w-8 h-8 rounded-full bg-[#D4A373] text-white flex items-center justify-center font-bold shrink-0">3</div>
+                      <div className="w-8 h-8 rounded-full btn-gold shadow-md flex items-center justify-center font-bold shrink-0">3</div>
                       <div>
                         <p className="font-bold text-gray-800">Recarregue a Página</p>
                         <p className="text-sm text-gray-500">Clique em "Tentar Novamente" ou atualize a página para aplicar as mudanças.</p>
@@ -694,6 +753,7 @@ export default function UploadModal({ onClose, isHostAlbum = false }: { onClose:
                 </div>
               </div>
             </div>
+          </div>
           )}
           {successMessage && (
             <div className="mb-6 p-4 bg-green-50 text-green-700 rounded-2xl text-sm border border-green-100 flex items-start gap-3">
@@ -824,7 +884,6 @@ export default function UploadModal({ onClose, isHostAlbum = false }: { onClose:
               <div className="relative w-full aspect-[3/4] bg-black rounded-3xl overflow-hidden shadow-inner">
                 <video 
                   ref={videoRef} 
-                  autoPlay 
                   playsInline 
                   muted
                   className="w-full h-full object-cover"
@@ -864,7 +923,7 @@ export default function UploadModal({ onClose, isHostAlbum = false }: { onClose:
                 {capturedImage ? (
                   <img src={capturedImage} alt="Preview" className="w-full h-full object-cover" />
                 ) : capturedVideoBlob ? (
-                  <video src={URL.createObjectURL(capturedVideoBlob)} controls className="w-full h-full object-cover" />
+                  <video src={URL.createObjectURL(capturedVideoBlob)} controls playsInline className="w-full h-full object-cover" />
                 ) : null}
                 {capturedImage && selectedFrame !== 'none' && (
                   <img 
@@ -892,7 +951,7 @@ export default function UploadModal({ onClose, isHostAlbum = false }: { onClose:
                       <button
                         key={frame.id}
                         onClick={() => setSelectedFrame(frame.id)}
-                        className={`flex-shrink-0 px-4 py-2 rounded-full text-sm font-medium transition-all ${selectedFrame === frame.id ? 'bg-[#D4A373] text-white shadow-md' : 'bg-white border border-gray-200 text-gray-600 hover:bg-pink-50'}`}
+                        className={`flex-shrink-0 px-4 py-2 rounded-full text-sm font-medium transition-all ${selectedFrame === frame.id ? 'btn-gold shadow-md' : 'btn-beige'}`}
                       >
                         {frame.name}
                       </button>
@@ -915,7 +974,7 @@ export default function UploadModal({ onClose, isHostAlbum = false }: { onClose:
                               setSelectedAccessories(prev => [...prev, acc.id]);
                             }
                           }}
-                          className={`flex-shrink-0 px-4 py-2 rounded-full text-sm font-medium transition-all ${isSelected ? 'bg-[#D4A373] text-white shadow-md' : 'bg-white border border-gray-200 text-gray-600 hover:bg-pink-50'}`}
+                          className={`flex-shrink-0 px-4 py-2 rounded-full text-sm font-medium transition-all ${isSelected ? 'btn-gold shadow-md' : 'btn-beige'}`}
                         >
                           {acc.name}
                         </button>
@@ -950,7 +1009,7 @@ export default function UploadModal({ onClose, isHostAlbum = false }: { onClose:
                   setUploadFiles([]);
                 }
               }}
-              className="flex-1 py-3 rounded-xl font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 transition-colors"
+              className="flex-1 py-3 btn-beige rounded-xl font-medium"
             >
               Voltar
             </button>
@@ -960,7 +1019,7 @@ export default function UploadModal({ onClose, isHostAlbum = false }: { onClose:
             <button 
               onClick={handleGalleryUpload}
               disabled={uploadFiles.length === 0 || uploading}
-              className="flex-[2] bg-[#D4A373] text-white rounded-xl py-3 font-medium hover:bg-[#C39262] transition-colors disabled:opacity-50 flex items-center justify-center gap-2 shadow-md shadow-[#D4A373]/20"
+              className="flex-[2] btn-gold rounded-xl py-3 font-medium disabled:opacity-50 flex items-center justify-center gap-2"
             >
               {uploading ? (
                 <><Loader2 size={20} className="animate-spin" /> Enviando...</>
@@ -974,7 +1033,7 @@ export default function UploadModal({ onClose, isHostAlbum = false }: { onClose:
             <button 
               onClick={handleCameraUpload}
               disabled={uploading}
-              className="flex-[2] bg-[#D4A373] text-white rounded-xl py-3 font-medium hover:bg-[#C39262] transition-colors disabled:opacity-50 flex items-center justify-center gap-2 shadow-md shadow-[#D4A373]/20"
+              className="flex-[2] btn-gold rounded-xl py-3 font-medium disabled:opacity-50 flex items-center justify-center gap-2"
             >
               {uploading ? (
                 <><Loader2 size={20} className="animate-spin" /> Enviando...</>
@@ -986,5 +1045,7 @@ export default function UploadModal({ onClose, isHostAlbum = false }: { onClose:
         </div>
       </div>
     </div>
+  </div>
+  </Portal>
   );
 }

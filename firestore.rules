@@ -54,7 +54,10 @@ service cloud.firestore {
 
     // Check if user is an authenticated admin
     function isAdmin() {
-      return request.auth != null && request.auth.token.email != null;
+      return request.auth != null && (
+        request.auth.token.email == 'erikacrisb@gmail.com' ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
     }
 
     // Validate string length
@@ -127,10 +130,13 @@ service cloud.firestore {
     }
 
     function isValidSettings(data) {
-      return data.keys().hasAll(['uploadsEnabled', 'requireApproval', 'inviteCode']) &&
-             data.uploadsEnabled is bool &&
-             data.requireApproval is bool &&
-             validStringLength('inviteCode', 1, 50);
+      return data.eventName is string;
+    }
+
+    function isValidAdmin(data) {
+      return data.keys().hasAll(['email', 'createdAt']) &&
+             data.email is string &&
+             data.createdAt is string;
     }
 
     function isValidGuestbookEntry(data) {
@@ -157,15 +163,31 @@ service cloud.firestore {
     }
 
     function isValidUserLog(data) {
-      return hasOnlyAllowedFields(['guestName', 'sessionId', 'timestamp']) &&
+      return hasOnlyAllowedFields(['guestName', 'sessionId', 'timestamp', 'contact']) &&
              validStringLength('guestName', 1, 50) &&
              validStringLength('sessionId', 1, 100) &&
+             isValidOptionalString('contact', 0, 200) &&
              data.timestamp is timestamp;
     }
 
     // ===============================================================
     // Rules
     // ===============================================================
+
+    match /admins/{adminId} {
+      allow read: if isAdmin();
+      // Allow the primary admin to bootstrap themselves, or logged in admins to add others
+      allow create: if (request.auth != null && request.auth.token.email == 'erikacrisb@gmail.com') || isAdmin();
+      allow update, delete: if isAdmin();
+    }
+
+    match /guest_users/{guestId} {
+      allow get: if true;
+      allow list: if isAdmin();
+      allow create: if !exists(/databases/$(database)/documents/guest_users/$(guestId)) 
+                    && request.resource.data.pin is string;
+      allow update, delete: if isAdmin();
+    }
 
     match /{path=**}/comments/{commentId} {
       allow read: if true;
@@ -179,21 +201,63 @@ service cloud.firestore {
       allow read: if true;
       allow create: if isValidGuestbookEntry(request.resource.data);
       allow delete: if isAdmin() || (
-        get(/databases/$(database)/documents/settings/global).data.canDelete == true
+        exists(/databases/$(database)/documents/settings/global) && get(/databases/$(database)/documents/settings/global).data.get('canDelete', false) == true
       );
+      
+      allow update: if isAdmin() || (
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likesCount', 'commentsCount'])
+      );
+
+      match /likes/{likeId} {
+        allow read: if true;
+        allow create, update: if isValidLike(request.resource.data) && 
+                               likeId == request.resource.data.sessionId + "_" + request.resource.data.type;
+        allow delete: if true; 
+      }
+
+      match /comments/{commentId} {
+        allow read: if true;
+        allow create: if isValidComment(request.resource.data);
+        allow delete: if true;
+        allow update: if true;
+      }
     }
 
     match /predictions/{predictionId} {
       allow read: if true;
       allow create: if isValidPrediction(request.resource.data);
       allow delete: if isAdmin() || (
-        get(/databases/$(database)/documents/settings/global).data.canDelete == true
+        exists(/databases/$(database)/documents/settings/global) && get(/databases/$(database)/documents/settings/global).data.get('canDelete', false) == true
       );
+
+      allow update: if isAdmin() || (
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likesCount', 'commentsCount'])
+      );
+
+      match /likes/{likeId} {
+        allow read: if true;
+        allow create, update: if isValidLike(request.resource.data) && 
+                               likeId == request.resource.data.sessionId + "_" + request.resource.data.type;
+        allow delete: if true; 
+      }
+
+      match /comments/{commentId} {
+        allow read: if true;
+        allow create: if isValidComment(request.resource.data);
+        allow delete: if true;
+        allow update: if true;
+      }
     }
 
     match /access_logs/{logId} {
       allow read: if isAdmin();
       allow create: if isValidUserLog(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    match /admin_logs/{logId} {
+      allow read: if isAdmin();
+      allow create: if request.auth != null; // Let the logged in admin create a log
       allow delete: if isAdmin();
     }
 
@@ -217,13 +281,12 @@ service cloud.firestore {
       // Only admins can update media (e.g., change status)
       // Guests can update likesCount, but we must ensure it's a valid increment
       allow update: if isAdmin() || (
-        // Allow guests to update ONLY the likesCount field
-        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likesCount']) &&
-        math.abs(request.resource.data.likesCount - resource.data.likesCount) == 1
+        // Allow guests to update ONLY the likesCount or commentsCount field
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likesCount', 'commentsCount'])
       );
 
       allow delete: if isAdmin() || (
-        get(/databases/$(database)/documents/settings/global).data.canDelete == true
+        exists(/databases/$(database)/documents/settings/global) && get(/databases/$(database)/documents/settings/global).data.get('canDelete', false) == true
       );
 
       match /likes/{likeId} {
@@ -240,9 +303,8 @@ service cloud.firestore {
         allow read: if true;
         // Guests can create comments
         allow create: if isValidComment(request.resource.data);
-        // Only admins can delete comments
-        allow delete: if isAdmin();
-        allow update: if isAdmin();
+        allow delete: if true;
+        allow update: if true;
       }
     }
 

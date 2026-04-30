@@ -1,12 +1,14 @@
 import React, { useRef, useState, useEffect } from 'react';
 import { QRCodeCanvas } from 'qrcode.react';
-import { Move, Type, Camera, QrCode, Image as ImageIcon, Download, RotateCcw, Upload, Calendar, Bold, Italic, Layers, Palette, Check, MessageSquare } from 'lucide-react';
+import { Move, Type, Camera, QrCode, Image as ImageIcon, Download, RotateCcw, Upload, Calendar, Bold, Italic, Layers, Palette, Check, MessageSquare, X, Trash2 } from 'lucide-react';
 
 interface DisplayGeneratorProps {
   eventName: string;
   eventDate?: string;
   inviteCode: string;
   eventPhotoUrl?: string;
+  customBackgrounds?: Array<{id: string, name: string, url: string}>;
+  onUpdateCustomBackgrounds?: (backgrounds: Array<{id: string, name: string, url: string}>) => void;
 }
 
 type TextElement = {
@@ -23,27 +25,23 @@ type TextElement = {
   uppercase: boolean;
 }
 
-const PRESET_BACKGROUNDS = [
-  { id: 'fundo-1', name: 'Premium 1', url: '/fundo_1.png' },
-  { id: 'fundo-2', name: 'Premium 2', url: '/fundo_2.png' },
-  { id: 'fundo-3', name: 'Premium 3', url: '/fundo_3.png' },
-  { id: 'fundo-4', name: 'Premium 4', url: '/fundo_4.png' },
-  { id: 'fundo-5', name: 'Premium 5', url: '/fundo_5.png' },
-  { id: 'fundo-6', name: 'Premium 6', url: '/fundo_6.png' },
-  { id: 'fundo-7', name: 'Premium 7', url: '/fundo_7.png' },
-  { id: 'fundo-8', name: 'Premium 8', url: '/fundo_8.png' }
-];
+const DEFAULT_BACKGROUNDS: Array<{id: string, name: string, url: string}> = [];
 
-export default function DisplayGenerator({ eventName, eventDate, inviteCode, eventPhotoUrl }: DisplayGeneratorProps) {
+export default function DisplayGenerator({ eventName, eventDate, inviteCode, eventPhotoUrl, customBackgrounds = [], onUpdateCustomBackgrounds }: DisplayGeneratorProps) {
   const [isGenerating, setIsGenerating] = useState(false);
   const qrRef = useRef<HTMLDivElement>(null);
   const previewCanvasRef = useRef<HTMLCanvasElement>(null);
   
   // UI State
   const [activeTab, setActiveTab] = useState<'bg' | 'elements' | 'styles'>('bg');
+  const [backgrounds, setBackgrounds] = useState<Array<{id: string, name: string, url: string}>>([...customBackgrounds, ...DEFAULT_BACKGROUNDS]);
+
+  useEffect(() => {
+    setBackgrounds([...customBackgrounds, ...DEFAULT_BACKGROUNDS]);
+  }, [customBackgrounds]);
   
   // Custom states
-  const [customBg, setCustomBg] = useState<string | null>(PRESET_BACKGROUNDS[0].url);
+  const [customBg, setCustomBg] = useState<string | null>(customBackgrounds?.[0]?.url || null);
   const [customFooter, setCustomFooter] = useState<string | null>(null);
   const [customMessage, setCustomMessage] = useState<string>('SUA MENSAGEM AQUI');
   
@@ -109,7 +107,7 @@ export default function DisplayGenerator({ eventName, eventDate, inviteCode, eve
       qr: { x: 75, y: 45, scale: 1.0, visible: false },
       footer: { x: 50, y: 88, scale: 1.0, visible: false }
     });
-    setCustomBg(PRESET_BACKGROUNDS[0].url);
+    setCustomBg(backgrounds?.[0]?.url || null);
     setCustomFooter(null);
     setCustomMessage('SUA MENSAGEM AQUI');
   };
@@ -127,7 +125,25 @@ export default function DisplayGenerator({ eventName, eventDate, inviteCode, eve
       await new Promise(r => { bgImg.onload = r; bgImg.onerror = r; });
       
       if (bgImg.complete && bgImg.naturalWidth > 0) {
-        ctx.drawImage(bgImg, 0, 0, canvas.width, canvas.height);
+        const imgAspect = bgImg.width / bgImg.height;
+        const canvasAspect = canvas.width / canvas.height;
+        let renderWidth, renderHeight, xOffset, yOffset;
+
+        if (imgAspect > canvasAspect) {
+          // Imagem é mais larga que o canvas (aspect ratio maior)
+          renderHeight = canvas.height;
+          renderWidth = canvas.height * imgAspect;
+          xOffset = (canvas.width - renderWidth) / 2;
+          yOffset = 0;
+        } else {
+          // Imagem é mais alta que o canvas
+          renderWidth = canvas.width;
+          renderHeight = canvas.width / imgAspect;
+          xOffset = 0;
+          yOffset = (canvas.height - renderHeight) / 2;
+        }
+
+        ctx.drawImage(bgImg, xOffset, yOffset, renderWidth, renderHeight);
       } else {
         ctx.fillStyle = '#FAF9F1';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -257,7 +273,7 @@ export default function DisplayGenerator({ eventName, eventDate, inviteCode, eve
           const dh = dw * (footerImg.height / footerImg.width);
           ctx.drawImage(footerImg, centerX - dw/2, centerY - dh/2, dw, dh);
         }
-      } else if (!customBg || (customBg && !PRESET_BACKGROUNDS.find(b => b.url === customBg))) {
+      } else if (!customBg || (customBg && !backgrounds.find(b => b.url === customBg))) {
         // Only show default footer if no custom background or it's not a preset that might already have branding
         const footerH = canvas.height * 0.15;
         ctx.fillStyle = '#1a1a1a';
@@ -277,12 +293,62 @@ export default function DisplayGenerator({ eventName, eventDate, inviteCode, eve
     }
   }, [transforms, eventName, eventDate, customBg, customFooter, eventPhotoUrl, customMessage]);
 
-  const handleBgUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onload = (ev) => setCustomBg(ev.target?.result as string);
-      reader.readAsDataURL(file);
+  const handleBgUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (files && files.length > 0) {
+      if (typeof window !== 'undefined') {
+        const toast = document.createElement('div');
+        toast.innerText = 'Enviando imagens...';
+        toast.className = 'fixed bottom-4 right-4 bg-[#D4A373] text-white px-4 py-2 rounded shadow-lg z-[9999] transition-opacity duration-300';
+        toast.id = 'uploading-toast';
+        document.body.appendChild(toast);
+      }
+
+      const uploadedBackgrounds: Array<{id: string, name: string, url: string}> = [];
+      const failedBackgrounds: string[] = [];
+
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        try {
+          const formData = new FormData();
+          formData.append('file', file);
+          const response = await fetch('/api/upload', {
+            method: 'POST',
+            body: formData,
+          });
+          if (!response.ok) throw new Error('Upload server error');
+          const data = await response.json();
+          uploadedBackgrounds.push({
+            id: `custom-${Date.now()}-${i}`,
+            name: file.name.replace(/\.[^/.]+$/, ""),
+            url: `/api/image/${data.id}`
+          });
+        } catch (e: any) {
+          console.error("Error uploading background", file.name, e);
+          failedBackgrounds.push(file.name);
+        }
+      }
+
+      const toast = document.getElementById('uploading-toast');
+      if (toast) {
+        if (failedBackgrounds.length > 0) {
+           toast.innerText = 'Alguns arquivos falharam ao enviar.';
+           toast.className = 'fixed bottom-4 right-4 bg-red-500 text-white px-4 py-2 rounded shadow-lg z-[9999] transition-opacity duration-300';
+        } else {
+           toast.innerText = 'Modelos enviados com sucesso!';
+           toast.className = 'fixed bottom-4 right-4 bg-green-500 text-white px-4 py-2 rounded shadow-lg z-[9999] transition-opacity duration-300';
+        }
+        setTimeout(() => toast.remove(), 3000);
+      }
+
+      if (uploadedBackgrounds.length > 0) {
+        if (onUpdateCustomBackgrounds) {
+          onUpdateCustomBackgrounds([...uploadedBackgrounds, ...customBackgrounds]);
+        } else {
+          setBackgrounds(prev => [...uploadedBackgrounds, ...prev]);
+        }
+        setCustomBg(uploadedBackgrounds[uploadedBackgrounds.length - 1].url);
+      }
     }
   };
 
@@ -298,8 +364,9 @@ export default function DisplayGenerator({ eventName, eventDate, inviteCode, eve
   const exportLarge = async () => {
     setIsGenerating(true);
     const exportCanvas = document.createElement('canvas');
-    exportCanvas.width = 1500;
-    exportCanvas.height = 1800;
+    // 15cm x 18cm em 300 DPI
+    exportCanvas.width = 1772;
+    exportCanvas.height = 2126;
     await drawOnCanvas(exportCanvas, true);
     
     const link = document.createElement('a');
@@ -316,19 +383,17 @@ export default function DisplayGenerator({ eventName, eventDate, inviteCode, eve
     const config = transforms[id] as any;
 
     return (
-      <div className={`p-4 rounded-xl border transition-all ${activeElement === id ? 'bg-amber-50/50 border-amber-200' : 'bg-white border-gray-100 hover:border-gray-200'}`}>
+      <div className={`rounded-xl transition-all ${activeElement === id ? 'menu-btn-active' : 'menu-btn-inactive border border-gray-100'}`}>
         <button 
           onClick={(e) => {
             e.stopPropagation();
             setActiveElement(id);
           }}
-          className="w-full flex items-center justify-between mb-2 text-left"
+          className="w-full p-4 flex items-center justify-between text-left"
         >
-          <div className="flex items-center gap-2">
-            <div className={`p-1.5 rounded-lg ${activeElement === id ? 'bg-[#D4A373] text-white' : 'bg-gray-100 text-gray-500'}`}>
-              <Icon size={14} />
-            </div>
-            <span className={`text-xs font-semibold ${activeElement === id ? 'text-[#D4A373]' : 'text-gray-700'}`}>{label}</span>
+          <div className="flex items-center gap-3">
+            <Icon size={16} className={activeElement === id ? 'text-[#D4A373]' : 'text-gray-400'} />
+            <span className={`text-sm font-semibold ${activeElement === id ? 'text-[#D4A373]' : 'text-gray-600'}`}>{label}</span>
           </div>
           <label className="relative inline-flex items-center cursor-pointer scale-75" onClick={e => e.stopPropagation()}>
             <input 
@@ -342,7 +407,7 @@ export default function DisplayGenerator({ eventName, eventDate, inviteCode, eve
         </button>
 
         {activeElement === id && config.visible && (
-          <div className="space-y-4 animate-in fade-in slide-in-from-top-1 px-1 mt-3">
+          <div className="space-y-4 animate-in fade-in slide-in-from-top-1 px-4 pb-4 mt-1 border-t border-gray-100/50 pt-4">
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
                 <div className="flex justify-between text-[9px] text-gray-400 font-bold uppercase">
@@ -436,25 +501,25 @@ export default function DisplayGenerator({ eventName, eventDate, inviteCode, eve
                 <div className="flex flex-wrap gap-1.5">
                   <button 
                     onClick={() => setTransforms({...transforms, [id]: {...config, bold: !config.bold}})}
-                    className={`p-1.5 rounded border transition-all ${config.bold ? 'bg-[#D4A373] text-white border-[#D4A373]' : 'bg-white text-gray-400 hover:bg-gray-50'}`}
+                    className={`p-1.5 rounded border transition-all ${config.bold ? 'btn-gold border-[#D4A373]' : 'btn-beige text-gray-400'}`}
                   >
                     <Bold size={12} />
                   </button>
                   <button 
                     onClick={() => setTransforms({...transforms, [id]: {...config, italic: !config.italic}})}
-                    className={`p-1.5 rounded border transition-all ${config.italic ? 'bg-[#D4A373] text-white border-[#D4A373]' : 'bg-white text-gray-400 hover:bg-gray-50'}`}
+                    className={`p-1.5 rounded border transition-all ${config.italic ? 'btn-gold border-[#D4A373]' : 'btn-beige text-gray-400'}`}
                   >
                     <Italic size={12} />
                   </button>
                   <button 
                     onClick={() => setTransforms({...transforms, [id]: {...config, shadow: !config.shadow}})}
-                    className={`p-1.5 rounded border transition-all ${config.shadow ? 'bg-[#D4A373] text-white border-[#D4A373]' : 'bg-white text-gray-400 hover:bg-gray-50'}`}
+                    className={`p-1.5 rounded border transition-all ${config.shadow ? 'btn-gold border-[#D4A373]' : 'btn-beige text-gray-400'}`}
                   >
                     <Layers size={12} />
                   </button>
                   <button 
                     onClick={() => setTransforms({...transforms, [id]: {...config, uppercase: !config.uppercase}})}
-                    className={`px-2 py-1 rounded border text-[8px] font-bold transition-all ${config.uppercase ? 'bg-[#D4A373] text-white border-[#D4A373]' : 'bg-white text-gray-400 hover:bg-gray-50'}`}
+                    className={`px-2 py-1 rounded border text-[8px] font-bold transition-all ${config.uppercase ? 'btn-gold border-[#D4A373]' : 'btn-beige text-gray-400'}`}
                   >
                     ABC
                   </button>
@@ -474,21 +539,21 @@ export default function DisplayGenerator({ eventName, eventDate, inviteCode, eve
         <div className="w-full xl:w-20 xl:h-[720px] flex xl:flex-col gap-2 bg-white rounded-2xl p-2 shadow-sm border shrink-0">
           <button 
             onClick={() => setActiveTab('bg')}
-            className={`flex-1 xl:flex-none p-3 rounded-xl transition-all flex flex-col items-center gap-1 ${activeTab === 'bg' ? 'bg-[#D4A373] text-white shadow-md' : 'text-gray-400 hover:bg-gray-50'}`}
+            className={`flex-1 xl:flex-none p-3 rounded-xl transition-all flex items-center justify-center gap-2 ${activeTab === 'bg' ? 'menu-btn-active' : 'menu-btn-inactive'}`}
           >
             <ImageIcon size={20} />
             <span className="text-[9px] font-bold uppercase">Fundo</span>
           </button>
           <button 
             onClick={() => setActiveTab('elements')}
-            className={`flex-1 xl:flex-none p-3 rounded-xl transition-all flex flex-col items-center gap-1 ${activeTab === 'elements' ? 'bg-[#D4A373] text-white shadow-md' : 'text-gray-400 hover:bg-gray-50'}`}
+            className={`flex-1 xl:flex-none p-3 rounded-xl transition-all flex items-center justify-center gap-2 ${activeTab === 'elements' ? 'menu-btn-active' : 'menu-btn-inactive'}`}
           >
             <Move size={20} />
             <span className="text-[9px] font-bold uppercase">Objetos</span>
           </button>
           <button 
             onClick={() => setActiveTab('styles')}
-            className={`flex-1 xl:flex-none p-3 rounded-xl transition-all flex flex-col items-center gap-1 ${activeTab === 'styles' ? 'bg-[#D4A373] text-white shadow-md' : 'text-gray-400 hover:bg-gray-50'}`}
+            className={`flex-1 xl:flex-none p-3 rounded-xl transition-all flex items-center justify-center gap-2 ${activeTab === 'styles' ? 'menu-btn-active' : 'menu-btn-inactive'}`}
           >
             <Palette size={20} />
             <span className="text-[9px] font-bold uppercase">Estilos</span>
@@ -525,7 +590,7 @@ export default function DisplayGenerator({ eventName, eventDate, inviteCode, eve
             <button
               onClick={exportLarge}
               disabled={isGenerating}
-              className="flex-1 bg-gray-900 text-white px-8 py-4 rounded-2xl font-bold hover:bg-black transition-all shadow-xl active:scale-[0.98] disabled:opacity-50 flex items-center justify-center gap-2"
+              className="flex-1 btn-gold px-8 py-4 rounded-2xl font-bold shadow-xl active:scale-[0.98] disabled:opacity-50 flex items-center justify-center gap-2"
             >
               {isGenerating ? (
                 <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
@@ -550,33 +615,69 @@ export default function DisplayGenerator({ eventName, eventDate, inviteCode, eve
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
                     <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Galeria de Eventos</label>
-                    <button 
-                      onClick={() => document.getElementById('bg-upload')?.click()}
-                      className="text-[10px] text-[#D4A373] font-bold flex items-center gap-1 hover:underline"
-                    >
-                      <Upload size={12} /> NOVO
-                    </button>
+                    <div className="flex gap-4">
+                      {customBackgrounds && customBackgrounds.length > 0 && (
+                        <button 
+                          onClick={() => {
+                            if (window.confirm('Tem certeza que deseja apagar todos os fundos personalizados?')) {
+                              if (onUpdateCustomBackgrounds) onUpdateCustomBackgrounds([]);
+                              setCustomBg(backgrounds?.[0]?.url || null);
+                            }
+                          }}
+                          className="text-[10px] text-red-500 font-bold flex items-center gap-1 hover:underline"
+                        >
+                          <Trash2 size={12} /> LIMPAR TODOS
+                        </button>
+                      )}
+                      <button 
+                        onClick={() => document.getElementById('bg-upload')?.click()}
+                        className="text-[10px] text-[#D4A373] font-bold flex items-center gap-1 hover:underline"
+                      >
+                        <Upload size={12} /> NOVO
+                      </button>
+                    </div>
                   </div>
                   <div className="grid grid-cols-2 gap-3">
-                    {PRESET_BACKGROUNDS.map((bg) => (
-                      <button
-                        key={bg.id}
-                        onClick={() => setCustomBg(bg.url)}
-                        className={`group relative aspect-[3/4] rounded-xl border-2 overflow-hidden transition-all ${customBg === bg.url ? 'border-[#D4A373] ring-4 ring-amber-50' : 'border-gray-100 hover:border-amber-200 shadow-sm'}`}
-                      >
-                        <img src={bg.url} className="w-full h-full object-cover" alt={bg.name} />
-                        {customBg === bg.url && (
-                          <div className="absolute top-2 right-2 bg-[#D4A373] text-white p-1 rounded-full">
-                            <Check size={12} />
+                    {backgrounds.map((bg) => (
+                      <div key={bg.id} className="relative group aspect-[3/4] rounded-xl border-2 overflow-hidden transition-all border-gray-100 hover:border-amber-200 shadow-sm">
+                        <button
+                          onClick={() => setCustomBg(bg.url)}
+                          className={`w-full h-full ${customBg === bg.url ? 'ring-4 ring-amber-50 border-[#D4A373]' : ''}`}
+                        >
+                          <img src={bg.url} className="w-full h-full object-cover" alt={bg.name} />
+                          {customBg === bg.url && (
+                            <div className="absolute top-2 left-2 bg-[#D4A373] text-white p-1 rounded-full z-10">
+                              <Check size={12} />
+                            </div>
+                          )}
+                          <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/60 to-transparent text-[9px] text-white p-2 font-medium">
+                            {bg.name}
                           </div>
+                        </button>
+                        {bg.id.startsWith('custom-') && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              
+                              if (onUpdateCustomBackgrounds) {
+                                onUpdateCustomBackgrounds(customBackgrounds.filter(b => b.id !== bg.id));
+                              } else {
+                                setBackgrounds(prev => prev.filter(b => b.id !== bg.id));
+                              }
+  
+                              if (customBg === bg.url) {
+                                setCustomBg(backgrounds.find(b => b.id !== bg.id)?.url || null);
+                              }
+                            }}
+                            className="absolute top-2 right-2 bg-red-500/90 text-white p-1 rounded-full lg:opacity-0 lg:group-hover:opacity-100 transition-opacity z-20 hover:bg-red-600"
+                          >
+                            <X size={12} />
+                          </button>
                         )}
-                        <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/60 to-transparent text-[9px] text-white p-2 font-medium">
-                          {bg.name}
-                        </div>
-                      </button>
+                      </div>
                     ))}
                   </div>
-                  <input id="bg-upload" type="file" accept="image/*" className="hidden" onChange={handleBgUpload} />
+                  <input id="bg-upload" type="file" accept="image/*" multiple className="hidden" onChange={handleBgUpload} />
                 </div>
               </div>
             )}
@@ -604,7 +705,7 @@ export default function DisplayGenerator({ eventName, eventDate, inviteCode, eve
                     {customFooter ? (
                       <div className="relative w-full h-full flex items-center justify-center p-4">
                         <img src={customFooter} className="max-h-full max-w-full object-contain drop-shadow-sm" />
-                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white text-xs font-bold">Alterar Logo</div>
+                        <div className="absolute inset-0 bg-black/40 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity flex items-center justify-center text-white text-xs font-bold">Alterar Logo</div>
                       </div>
                     ) : (
                       <div className="flex flex-col items-center gap-2 text-gray-300 group-hover:text-[#D4A373]">

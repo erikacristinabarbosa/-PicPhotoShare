@@ -1,0 +1,82 @@
+721:      <div className="min-h-screen flex flex-col items-center justify-center bg-[#FAFAFA] gap-4">
+729:    <div className="min-h-screen flex bg-[#FAFAFA] font-sans text-gray-800">
+732:      <aside className="hidden md:flex flex-col w-64 lg:w-72 bg-white border-r border-pink-100 shadow-sm sticky top-0 h-screen overflow-y-auto shrink-0 transition-all duration-300">
+733:        <div className="p-6 border-b border-gray-100 bg-pink-50/30">
+765:            <button onClick={handleLogout} className="flex items-center gap-3 w-full text-left text-gray-600 hover:text-red-500 hover:bg-red-50 transition-colors py-3 px-4 rounded-xl">
+774:      <div className="flex-1 flex flex-col min-w-0 bg-[#FAFAFA]">
+804:          <div className="px-4 py-3 bg-white flex flex-col gap-1 max-h-[80vh] overflow-y-auto no-scrollbar">
+832:              <button onClick={handleLogout} className="flex items-center gap-2 w-full text-left text-gray-600 hover:text-red-500 hover:bg-red-50 transition-colors py-2.5 px-3 rounded-lg">
+842:      <div className="relative w-full bg-white border-b border-gray-100">
+844:          <div className="relative w-full aspect-[1080/400] md:aspect-auto md:h-[500px] lg:h-[600px] rounded-2xl overflow-hidden shadow-lg bg-black/5 flex justify-center items-center">
+861:              className="w-full h-full absolute inset-0 flex items-center justify-center bg-gradient-to-r from-[#D4A373]/20 to-[#5A5A40]/20"
+921:              className="bg-white p-8 rounded-3xl shadow-sm border border-pink-50 relative overflow-hidden"
+928:                  <div className="p-2 bg-pink-100 text-[#D4A373] rounded-xl">
+941:              <div className="bg-white rounded-2xl shadow-sm p-6 border border-gray-100 flex flex-col justify-between">
+944:                    <div className="p-2 bg-pink-50 text-[#D4A373] rounded-lg">
+969:                    className="mt-4 p-4 bg-green-50 border border-green-100 rounded-xl text-center"
+980:              <div className="bg-white rounded-2xl shadow-sm p-6 border border-gray-100 flex flex-col justify-between">
+983:                    <div className="p-2 bg-pink-50 text-[#D4A373] rounded-lg">
+995:                  className="w-full py-4 bg-gray-900 text-white rounded-xl font-bold hover:bg-black transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+1008:            <div className="bg-red-50 rounded-3xl border border-red-100 p-8 relative overflow-hidden">
+1018:                  <div className="bg-white/90 backdrop-blur-md p-6 rounded-2xl border border-red-100 shadow-sm flex flex-col justify-between">
+1024:                      className="mt-4 w-full py-2 bg-red-50 text-red-600 rounded-lg hover:bg-red-600 hover:text-white transition-all font-bold text-xs"
+1030:                  <div className="bg-white/90 backdrop-blur-md p-6 rounded-2xl border border-red-100 shadow-sm flex flex-col justify-between">
+1036:                      className="mt-4 w-full py-2 bg-red-50 text-red-600 rounded-lg hover:bg-red-600 hover:text-white transition-all font-bold text-xs"
+1042:                  <div className="bg-white/90 backdrop-blur-md p-6 rounded-2xl border border-red-100 shadow-sm flex flex-col justify-between">
+1048:                      className="mt-4 w-full py-2 bg-red-50 text-red-600 rounded-lg hover:bg-red-600 hover:text-white transition-all font-bold text-xs"
+1058:          <div className="bg-white rounded-2xl shadow-sm p-6">
+1068:                    className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-red-600 bg-red-50 hover:bg-red-100 rounded-xl transition-colors shrink-0"
+1096:                      <tr key={log.id} className="border-b border-gray-50 hover:bg-gray-50/50 transition-colors">
+1115:          <div className="bg-white rounded-2xl shadow-sm p-6">
+1119:          <div className="bg-white rounded-2xl shadow-sm p-6">
+1123:          <div className="max-w-xl bg-white rounded-2xl shadow-sm p-6">
+1224:                          className="px-4 py-2 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition-colors flex items-center gap-2 text-sm font-medium"
+1240:                    <div className="w-16 h-16 rounded-lg overflow-hidden border border-gray-200 shrink-0 bg-black flex items-center justify-center">
+1275:                          className="px-4 py-2 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition-colors flex items-center gap-2 text-sm font-medium"
+1330:                          className="px-4 py-2 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition-colors flex items-center gap-2 text-sm font-medium"
+1357:              <div className="flex items-center justify-between p-4 bg-gray-50 rounded-xl border">
+1369:                  <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-gray-900"></div>
+1373:              <div className="flex items-center justify-between p-4 bg-gray-50 rounded-xl border">
+1385:                  <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-gray-900"></div>
+1389:              <div className="flex items-center justify-between p-4 bg-gray-50 rounded-xl border">
+1401:                  <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-gray-900"></div>
+1405:              <div className="flex flex-col items-center justify-center p-6 bg-gray-50 rounded-xl border">
+1407:                <div className="bg-white p-4 rounded-xl shadow-sm mb-4">
+1449:            <div className="flex justify-between items-center bg-white p-6 rounded-2xl shadow-sm">
+1467:                <div key={media.id} className="bg-white rounded-3xl overflow-hidden shadow-sm border flex flex-col hover:shadow-xl transition-all duration-300">
+1469:                    className="relative aspect-[3/4] bg-gray-100 cursor-pointer group"
+1480:                      <div className="w-full h-full flex items-center justify-center group-hover:scale-105 transition-transform duration-500 relative bg-gray-900">
+1496:                          <div className="w-14 h-14 bg-white/30 backdrop-blur-md rounded-full flex items-center justify-center text-white shadow-lg">
+1503:                      <div className="absolute top-4 left-4 z-10 px-3 py-1 bg-amber-500 text-white text-[10px] font-bold rounded-full shadow-sm flex items-center gap-1">
+1514:                    <div className="absolute inset-x-0 bottom-0 p-4 bg-gradient-to-t from-black/80 to-transparent opacity-0 group-hover:opacity-100 transition-opacity">
+1518:                          className="flex-1 bg-white/20 hover:bg-white/40 backdrop-blur-md text-white p-2 rounded-xl flex items-center justify-center transition-colors"
+1525:                          className="flex-1 bg-white/20 hover:bg-white/40 backdrop-blur-md text-white p-2 rounded-xl flex items-center justify-center transition-colors"
+1550:                        className="p-2.5 text-red-500 hover:bg-red-50 rounded-xl flex items-center justify-center gap-2 text-xs font-bold transition-colors border border-transparent hover:border-red-100"
+1579:                <div key={media.id} className="bg-white rounded-3xl overflow-hidden shadow-sm border flex flex-col hover:shadow-xl transition-all duration-300 shrink-0 w-64 sm:w-auto snap-center">
+1581:                    className="relative aspect-[3/4] bg-gray-100 cursor-pointer group"
+1592:                      <div className="w-full h-full flex items-center justify-center group-hover:scale-105 transition-transform duration-500 relative bg-gray-900">
+1608:                        <div className="w-14 h-14 bg-white/30 backdrop-blur-md rounded-full flex items-center justify-center text-white shadow-lg">
+1614:                    <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-4">
+1619:                    <div className="absolute top-4 left-4 z-10 px-3 py-1 bg-amber-500 text-white text-[10px] font-bold rounded-full shadow-sm flex items-center gap-1">
+1636:                          className="flex-1 bg-green-50 text-green-600 py-2.5 rounded-xl text-sm font-bold hover:bg-green-100 flex items-center justify-center gap-1 transition-colors shadow-sm"
+1642:                          className="flex-1 bg-red-50 text-red-600 py-2.5 rounded-xl text-sm font-bold hover:bg-red-100 flex items-center justify-center gap-1 transition-colors shadow-sm"
+1651:                          className="flex-1 bg-amber-50 text-amber-600 py-2.5 rounded-xl text-xs font-bold hover:bg-amber-100 transition-colors flex items-center justify-center gap-1"
+1673:                            className="p-2.5 text-red-500 hover:bg-red-50 rounded-xl transition-colors"
+1715:          <div className="fixed inset-0 bg-black/60 backdrop-blur-md" onClick={() => setMediaToDelete(null)} />
+1717:            <div className="bg-white rounded-3xl w-full max-w-sm p-6 shadow-2xl relative">
+1729:                className="px-5 py-2.5 rounded-full bg-red-500 text-white font-medium hover:bg-red-600 transition-colors shadow-md shadow-red-500/20"
+1744:          <div className="fixed inset-0 bg-black/60 backdrop-blur-md" onClick={() => setShowDeleteAllMediaModal(false)} />
+1746:            <div className="bg-white rounded-3xl w-full max-w-sm p-6 shadow-2xl relative">
+1763:                className="px-5 py-2.5 rounded-full bg-red-500 text-white font-medium hover:bg-red-600 transition-colors shadow-md shadow-red-500/20 flex items-center gap-2"
+1785:          <div className="fixed inset-0 bg-black/60 backdrop-blur-md" onClick={() => setShowDeleteAllMessagesModal(false)} />
+1787:            <div className="bg-white rounded-3xl w-full max-w-sm p-6 shadow-2xl relative">
+1803:                className="px-5 py-2.5 rounded-full bg-red-500 text-white font-medium hover:bg-red-600 transition-colors shadow-md shadow-red-500/20 flex items-center gap-2"
+1824:          <div className="fixed inset-0 bg-black/60 backdrop-blur-md" onClick={() => setShowDeleteAllPredictionsModal(false)} />
+1826:            <div className="bg-white rounded-3xl w-full max-w-sm p-6 shadow-2xl relative">
+1842:                className="px-5 py-2.5 rounded-full bg-red-500 text-white font-medium hover:bg-red-600 transition-colors shadow-md shadow-red-500/20 flex items-center gap-2"
+1863:          <div className="fixed inset-0 bg-black/60 backdrop-blur-md" onClick={() => setShowClearLogsModal(false)} />
+1865:            <div className="bg-white rounded-3xl w-full max-w-sm p-6 shadow-2xl relative">
+1879:                className="px-5 py-2.5 rounded-full bg-red-500 text-white font-medium hover:bg-red-600 transition-colors shadow-md shadow-red-500/20 flex items-center gap-2"
+1901:          <div className="fixed inset-0 bg-black/60 backdrop-blur-md" onClick={() => setShowMaintenanceModal(false)} />
+1906:              className="bg-white rounded-[32px] p-8 max-w-sm w-full text-center shadow-2xl relative"
+1908:            <div className="w-20 h-20 bg-pink-50 rounded-3xl flex items-center justify-center text-[#D4A373] mx-auto mb-6">

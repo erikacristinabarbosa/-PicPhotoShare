@@ -5,8 +5,14 @@ import { collection, addDoc, serverTimestamp, query, orderBy, onSnapshot, delete
 import { Prediction, Settings } from '../types';
 import { Sparkles, X, CheckCircle, Loader2, Trash2, Search, Send, ChevronLeft, ChevronRight, Share2, Image as ImageIcon } from 'lucide-react';
 import imageCompression from 'browser-image-compression';
+import { toPng } from 'html-to-image';
 import EmptyState from './EmptyState';
 import ShareModal from './ShareModal';
+import ScrollDots from './ScrollDots';
+import { motion, AnimatePresence } from 'motion/react';
+import PredictionCard from './PredictionCard';
+
+import Portal from './Portal';
 
 export default function Predictions({ isAdmin, highlightId, settings }: { isAdmin: boolean, highlightId?: string, settings?: Settings }) {
   const { guestName, sessionId, guestSessionId, authorPhotoUrl, setAuthorPhotoUrl } = useSession();
@@ -115,9 +121,9 @@ export default function Predictions({ isAdmin, highlightId, settings }: { isAdmi
       
       try {
         const options = {
-          maxSizeMB: 1,
-          maxWidthOrHeight: 1280,
-          useWebWorker: true
+          maxSizeMB: 0.5,
+          maxWidthOrHeight: 1200,
+          useWebWorker: false
         };
         const compressedFile = await imageCompression(file, options);
         const finalFile = new File([compressedFile], file.name, { type: file.type });
@@ -146,6 +152,10 @@ export default function Predictions({ isAdmin, highlightId, settings }: { isAdmi
       let thumbnailLink = null;
 
       if (photoFile) {
+        if (photoFile.size > 25 * 1024 * 1024) {
+          throw new Error('A imagem é muito grande mesmo após a compressão (ou falhou ao comprimir). O limite máximo de segurança é 25MB.');
+        }
+
         // Multi-attempt upload logic
         let uploadSuccess = false;
         let lastError = '';
@@ -163,7 +173,8 @@ export default function Predictions({ isAdmin, highlightId, settings }: { isAdmi
             const responseText = await response.text();
             
             if (responseText.trim().startsWith('<') || responseText.trim().startsWith('<!')) {
-              throw new Error('O servidor respondeu de forma inesperada. O sistema pode estar reiniciando ou sob alta carga.');
+              console.error("HTML response received:", responseText.substring(0, 200));
+              throw new Error('O servidor rejeitou o envio (possivelmente a foto é muito grande). Tente uma imagem mais leve.');
             }
 
             if (!response.ok) {
@@ -184,7 +195,8 @@ export default function Predictions({ isAdmin, highlightId, settings }: { isAdmi
             console.error(`Upload attempt ${attempt + 1} failed:`, err);
             lastError = err.message;
             if (attempt < 2) {
-              await new Promise(r => setTimeout(r, 2000 * (attempt + 1))); // Wait and retry
+              const waitTime = Math.pow(2, attempt + 1) * 2000 + Math.random() * 1000;
+              await new Promise(r => setTimeout(r, waitTime)); // Wait and retry securely
             }
           }
         }
@@ -207,6 +219,10 @@ export default function Predictions({ isAdmin, highlightId, settings }: { isAdmi
         thumbnailLink,
         timestamp: serverTimestamp()
       });
+      
+      if (sessionId) {
+        window.dispatchEvent(new CustomEvent('points-earned', { detail: { actionName: 'Escreveu Previsão', points: 5 } }));
+      }
 
       setSuccess(true);
       setTimeout(() => {
@@ -238,36 +254,101 @@ export default function Predictions({ isAdmin, highlightId, settings }: { isAdmi
     }
   };
 
-  const handleShare = (prediction: Prediction) => {
-    const url = `${window.location.origin}/?predictionId=${prediction.id}`;
-    const title = `Confira a previsão de ${formatName(prediction.author)} no painel Vidente por um Dia!`;
-    setShareData({ url, title });
+  const [isCapturing, setIsCapturing] = useState<string | null>(null);
+
+  const handleShare = async (prediction: Prediction) => {
+    if (isAdmin) {
+      try {
+        setIsCapturing(prediction.id);
+        const element = document.getElementById(`prediction-${prediction.id}`);
+        if (!element) return;
+        
+        // Hide buttons temporarily for capture
+        const buttons = element.querySelectorAll('button');
+        const originalOpacities: string[] = [];
+        buttons.forEach(btn => {
+          originalOpacities.push(btn.style.opacity);
+          btn.style.opacity = '0';
+        });
+        
+        // Wait a frame for styles to apply
+        await new Promise(r => setTimeout(r, 100));
+        
+        const dataUrl = await toPng(element, { 
+          quality: 0.95, 
+          pixelRatio: 2,
+          backgroundColor: '#ffffff'
+        });
+        
+        // Restore buttons
+        buttons.forEach((btn, index) => {
+          btn.style.opacity = originalOpacities[index];
+        });
+        
+        const res = await fetch(dataUrl);
+        const blob = await res.blob();
+        const file = new File([blob], `previsao-${prediction.id}.png`, { type: 'image/png' });
+        
+        if (navigator.canShare && navigator.canShare({ files: [file] })) {
+          await navigator.share({
+            files: [file],
+            title: `Previsão de ${formatName(prediction.author)}`,
+            text: `Previsão de ${formatName(prediction.author)} no painel Vidente por um Dia!`
+          });
+        } else {
+          const a = document.createElement('a');
+          a.download = `previsao-${prediction.author}.png`;
+          a.href = dataUrl;
+          a.click();
+        }
+      } catch (err) {
+        console.error('Error capturing and sharing image:', err);
+        alert('Erro ao gerar a imagem para compartilhamento.');
+      } finally {
+        setIsCapturing(null);
+      }
+    } else {
+      const url = `${window.location.origin}/?predictionId=${prediction.id}`;
+      const title = `Confira a previsão de ${formatName(prediction.author)} no painel Vidente por um Dia!`;
+      setShareData({ url, title });
+    }
   };
 
   return (
-    <div className="max-w-6xl mx-auto py-8 px-6">
-      <div className="flex flex-col md:flex-row md:items-center justify-between mb-10 gap-6">
-        <div>
-          <h2 className="font-serif text-2xl text-gray-800">Vidente por um Dia</h2>
-          <p className="text-gray-500 mt-2">O que o futuro reserva ao(s) responsável(is) pela festa ? Deixe sua previsão!</p>
-        </div>
-        <div className="flex flex-col sm:flex-row gap-4">
+    <div className="max-w-6xl mx-auto">
+      {/* Header */}
+      <div className="flex items-center justify-center gap-3 mb-10 mt-4 flex-wrap">
+        <motion.div
+          initial={{ opacity: 0, x: -10 }}
+          animate={{ opacity: 1, x: 0 }}
+          className="flex items-center gap-2 bg-indigo-50/50 px-3 py-1 rounded-full border border-indigo-100/50"
+        >
+          <Sparkles size={14} className="text-purple-600" />
+          <h2 className="text-sm font-serif font-bold text-gray-800 tracking-tight whitespace-nowrap">
+            Vidente por um Dia ({predictions.length})
+          </h2>
+        </motion.div>
+        <p className="text-[10px] text-gray-500 italic">Deixe sua previsão!</p>
+      </div>
+
+      <div className="flex flex-col md:flex-row md:items-center justify-between xl:justify-end mb-6 gap-4">
+        <div className="flex flex-col sm:flex-row gap-3">
           <div className="relative group">
             <input
               type="text"
               placeholder="Buscar convidado..."
               value={guestSearch}
               onChange={(e) => setGuestSearch(e.target.value)}
-              className="w-full sm:w-72 bg-white border border-gray-200 rounded-full py-3 pl-12 pr-12 text-sm focus:ring-2 focus:ring-[#D4A373] focus:border-transparent outline-none transition-all shadow-sm hover:shadow-md"
+              className="w-full sm:w-72 bg-white border border-gray-200 rounded-full py-3 pl-12 pr-10 text-sm focus:ring-2 focus:ring-[#D4A373] focus:border-transparent outline-none transition-all shadow-sm hover:shadow-md"
             />
             <div className="absolute left-4 top-1/2 -translate-y-1/2 text-[#D4A373]">
-              <Search size={18} />
+              <Search size={20} />
             </div>
             {guestSearch && (
               <button 
                 type="button"
                 onClick={clearSearch}
-                className="absolute right-4 top-1/2 -translate-y-1/2 p-1 bg-gray-100 text-gray-500 rounded-full hover:bg-gray-200 transition-colors"
+                className="absolute right-3.5 top-1/2 -translate-y-1/2 p-1.5 bg-gray-100 text-gray-500 rounded-full hover:bg-gray-200 transition-colors"
                 title="Limpar busca"
               >
                 <X size={12} />
@@ -277,103 +358,135 @@ export default function Predictions({ isAdmin, highlightId, settings }: { isAdmi
           {(!isFormOpen && (isAdmin || settings?.uploadsEnabled !== false)) && (
             <button 
               onClick={() => setIsFormOpen(true)}
-              className="bg-gradient-to-r from-[#D4A373] to-[#B88A5B] text-white px-8 py-3 rounded-full font-medium hover:shadow-lg transition-all flex items-center justify-center gap-2 shrink-0 transform hover:scale-105 active:scale-95"
+              className="bg-gradient-to-r from-[#D4A373] to-[#B88A5B] text-white px-8 py-3 rounded-full text-base font-medium hover:shadow-lg transition-all flex items-center justify-center gap-3 shrink-0 transform hover:scale-105 active:scale-95 shadow-lg"
             >
-              <Sparkles size={18} />
+              <Sparkles size={20} />
               Fazer Previsão
             </button>
           )}
         </div>
       </div>
 
-      {isFormOpen && (
-        <div className="bg-white rounded-[2rem] shadow-xl p-8 mb-12 border border-amber-50 relative overflow-hidden">
-          <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-amber-200 via-[#D4A373] to-amber-200"></div>
-          
-          <div className="flex justify-between items-center mb-6">
-            <h3 className="text-xl font-serif text-gray-800">Sua Previsão para o Futuro</h3>
-            <button onClick={() => setIsFormOpen(false)} className="text-gray-400 hover:text-gray-600">
-              <X size={24} />
-            </button>
-          </div>
-
-          {success ? (
-            <div className="py-12 flex flex-col items-center justify-center text-center space-y-4">
-              <div className="w-20 h-20 bg-green-50 rounded-full flex items-center justify-center">
-                <CheckCircle className="text-green-500" size={40} />
-              </div>
-              <h4 className="text-2xl font-serif text-gray-800">Previsão Registrada!</h4>
-              <p className="text-gray-500">As estrelas dizem que você é um ótimo convidado.</p>
-            </div>
-          ) : (
-            <form onSubmit={handleSubmit} className="space-y-6">
-              {error && (
-                <div className="p-4 bg-red-50 text-red-600 rounded-xl text-sm border border-red-100">
-                  {error}
+      <AnimatePresence>
+        {isFormOpen && (
+          <Portal>
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+              <motion.div 
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                onClick={() => setIsFormOpen(false)}
+                className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+              />
+              
+              <motion.div 
+                initial={{ opacity: 0, scale: 0.9, y: 20 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.9, y: 20 }}
+                className="bg-white rounded-[2rem] shadow-2xl p-6 md:p-8 w-full max-w-2xl relative overflow-hidden max-h-[90vh] overflow-y-auto"
+              >
+                <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-amber-200 via-[#D4A373] to-amber-200"></div>
+                
+                <div className="flex justify-between items-center mb-6">
+                  <h3 className="text-xl font-serif text-gray-800">Sua Previsão para o Futuro</h3>
+                  <button onClick={() => setIsFormOpen(false)} className="text-gray-400 hover:text-gray-600 p-2 hover:bg-gray-100 rounded-full transition-colors">
+                    <X size={24} />
+                  </button>
                 </div>
-              )}
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">O que você prevê?</label>
-                <textarea 
-                  value={text}
-                  onChange={(e) => setText(e.target.value)}
-                  className="w-full bg-gray-50 border border-gray-200 rounded-2xl p-4 focus:ring-2 focus:ring-[#D4A373] focus:border-transparent outline-none transition-all resize-none h-32"
-                  placeholder="Ex: Em 5 anos, ela estará viajando pelo mundo..."
-                  maxLength={500}
-                />
-                <div className="text-right text-xs text-gray-400 mt-1">{text.length}/500</div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Foto (Opcional)</label>
-                {photoPreview ? (
-                  <div className="relative inline-block">
-                    <img src={photoPreview} alt="Preview" className="h-32 w-32 object-cover rounded-2xl shadow-sm border border-gray-200" />
+                {success ? (
+                  <div className="py-12 flex flex-col items-center justify-center text-center space-y-4">
+                    <div className="w-20 h-20 bg-green-50 rounded-full flex items-center justify-center">
+                      <CheckCircle className="text-green-500" size={40} />
+                    </div>
+                    <h4 className="text-2xl font-serif text-gray-800">Previsão Registrada!</h4>
+                    <p className="text-gray-500">As estrelas dizem que você é um ótimo convidado. ✨</p>
                     <button 
-                      type="button"
-                      onClick={() => { setPhotoFile(null); setPhotoPreview(null); }}
-                      className="absolute -top-2 -right-2 bg-white text-red-500 rounded-full p-1 shadow-md hover:bg-red-50"
+                      onClick={() => setIsFormOpen(false)}
+                      className="mt-6 btn-gold px-8 py-2 rounded-full font-medium"
                     >
-                      <X size={16} />
+                      Fechar
                     </button>
                   </div>
                 ) : (
-                  <div 
-                    onClick={() => fileInputRef.current?.click()}
-                    className="border-2 border-dashed border-gray-200 rounded-2xl p-6 text-center cursor-pointer hover:bg-gray-50 hover:border-[#D4A373] transition-all"
-                  >
-                    <ImageIcon className="mx-auto text-gray-400 mb-2" size={24} />
-                    <p className="text-sm text-gray-500">Clique para adicionar uma foto à sua previsão</p>
-                  </div>
-                )}
-                <input 
-                  type="file" 
-                  ref={fileInputRef} 
-                  onChange={handlePhotoSelect} 
-                  className="hidden" 
-                  accept="image/*" 
-                />
-              </div>
+                  <form onSubmit={handleSubmit} className="space-y-6">
+                    {error && (
+                      <div className="p-4 bg-red-50 text-red-600 rounded-xl text-sm border border-red-100">
+                        {error}
+                      </div>
+                    )}
 
-              <div className="pt-4 flex justify-end">
-                <button 
-                  type="submit" 
-                  disabled={isSubmitting}
-                  className="bg-[#D4A373] text-white px-8 py-3 rounded-full font-medium hover:bg-[#C39362] transition-colors shadow-md disabled:opacity-70 flex items-center gap-2"
-                >
-                  {isSubmitting ? <Loader2 size={20} className="animate-spin" /> : (
-                    <>
-                      <Send size={18} />
-                      Enviar Previsão
-                    </>
-                  )}
-                </button>
-              </div>
-            </form>
-          )}
-        </div>
-      )}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">O que você prevê?</label>
+                      <textarea 
+                        value={text}
+                        onChange={(e) => setText(e.target.value)}
+                        className="w-full bg-gray-50 border border-gray-200 rounded-2xl p-4 focus:ring-2 focus:ring-[#D4A373] focus:border-transparent outline-none transition-all resize-none h-32"
+                        placeholder="Ex: Em 5 anos, ela estará viajando pelo mundo..."
+                        maxLength={500}
+                      />
+                      <div className="text-right text-xs text-gray-400 mt-1">{text.length}/500</div>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Foto (Opcional)</label>
+                      {photoPreview ? (
+                        <div className="relative inline-block">
+                          <img src={photoPreview} alt="Preview" className="h-32 w-32 object-cover rounded-2xl shadow-sm border border-gray-200" />
+                          <button 
+                            type="button"
+                            onClick={() => { setPhotoFile(null); setPhotoPreview(null); }}
+                            className="absolute -top-2 -right-2 bg-white text-red-500 rounded-full p-1 shadow-md hover:bg-red-50"
+                          >
+                            <X size={16} />
+                          </button>
+                        </div>
+                      ) : (
+                        <div 
+                          onClick={() => fileInputRef.current?.click()}
+                          className="border-2 border-dashed border-gray-200 rounded-2xl p-6 text-center cursor-pointer hover:bg-gray-50 hover:border-[#D4A373] transition-all"
+                        >
+                          <ImageIcon className="mx-auto text-gray-400 mb-2" size={24} />
+                          <p className="text-sm text-gray-500">Clique para adicionar uma foto à sua previsão</p>
+                        </div>
+                      )}
+                      <input 
+                        type="file" 
+                        ref={fileInputRef} 
+                        onChange={handlePhotoSelect} 
+                        className="hidden" 
+                        accept="image/*" 
+                      />
+                    </div>
+
+                    <div className="pt-4 flex justify-end gap-3">
+                      <button 
+                        type="button"
+                        onClick={() => setIsFormOpen(false)}
+                        className="px-6 py-3 rounded-full font-medium text-gray-500 hover:bg-gray-100 transition-colors"
+                      >
+                        Cancelar
+                      </button>
+                      <button 
+                        type="submit" 
+                        disabled={isSubmitting}
+                        className="btn-gold px-8 py-3 rounded-full font-medium disabled:opacity-70 flex items-center gap-2"
+                      >
+                        {isSubmitting ? <Loader2 size={20} className="animate-spin" /> : (
+                          <>
+                            <Send size={18} />
+                            Enviar Previsão
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </form>
+                )}
+              </motion.div>
+            </div>
+          </Portal>
+        )}
+      </AnimatePresence>
 
       {loading ? (
         <div className="flex justify-center py-20">
@@ -422,81 +535,26 @@ export default function Predictions({ isAdmin, highlightId, settings }: { isAdmi
             </button>
           )}
 
+          <ScrollDots containerRef={scrollContainerRef} itemCount={filteredPredictions.length} />
+
           <div 
             ref={scrollContainerRef}
             onScroll={checkScroll}
-            className="flex overflow-x-auto gap-8 px-4 py-8 snap-x snap-mandatory no-scrollbar custom-scrollbar pb-12"
+            className="flex overflow-x-auto gap-4 sm:gap-8 px-4 sm:px-4 py-8 snap-x snap-mandatory no-scrollbar custom-scrollbar pb-12 w-full"
           >
             {filteredPredictions.map((prediction) => (
-              <div 
-                key={prediction.id} 
-                id={`prediction-${prediction.id}`}
-                className="bg-white rounded-[2.5rem] shadow-xl shadow-amber-100/10 overflow-hidden border border-amber-50 relative group/card shrink-0 w-[300px] sm:w-[350px] snap-center transition-all duration-500 hover:shadow-2xl hover:-translate-y-2"
-              >
-                {(isAdmin || (settings?.canDelete && (prediction.authorSessionId === sessionId || prediction.authorSessionId === guestSessionId))) && (
-                  <button 
-                    onClick={() => setPredictionToDelete(prediction.id)}
-                    className="absolute top-6 right-6 p-2.5 bg-white/90 backdrop-blur-sm text-red-500 rounded-full opacity-0 group-hover/card:opacity-100 transition-all shadow-md z-10 hover:bg-red-50 hover:scale-110"
-                    title="Excluir previsão"
-                  >
-                    <Trash2 size={18} />
-                  </button>
-                )}
-
-                <button 
-                  onClick={() => handleShare(prediction)}
-                  className="absolute top-6 left-6 p-2.5 bg-white/90 backdrop-blur-sm text-[#D4A373] rounded-full opacity-0 group-hover/card:opacity-100 transition-all shadow-md z-10 hover:bg-amber-50 hover:scale-110"
-                  title="Compartilhar previsão"
-                >
-                  <Share2 size={18} />
-                </button>
-                
-                {prediction.driveFileId || prediction.thumbnailLink ? (
-                  <div className="w-full h-48 bg-gray-100 relative">
-                    <img 
-                      src={prediction.driveFileId ? `/api/image/${prediction.driveFileId}` : (prediction.thumbnailLink?.replace('=s220', '=s800') || '')} 
-                      alt="Foto da previsão" 
-                      className="w-full h-full object-cover"
-                      referrerPolicy="no-referrer"
-                    />
-                    <div className="absolute inset-0 bg-gradient-to-t from-white via-transparent to-transparent"></div>
-                  </div>
-                ) : null}
-                
-                <div className={`p-8 ${!prediction.thumbnailLink ? 'pt-10' : 'pt-4'}`}>
-                  <div className="flex items-center gap-4 mb-6">
-                    {prediction.authorPhotoUrl ? (
-                      <div className="w-12 h-12 rounded-2xl overflow-hidden shadow-inner flex items-center justify-center bg-gray-100">
-                        <img 
-                          src={prediction.authorPhotoUrl} 
-                          alt={prediction.author} 
-                          className="w-full h-full object-cover"
-                          referrerPolicy="no-referrer"
-                        />
-                      </div>
-                    ) : (
-                      <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-amber-100 to-pink-100 flex items-center justify-center text-[#D4A373] font-serif text-2xl shadow-inner">
-                        {formatName(prediction.author).charAt(0)}
-                      </div>
-                    )}
-                    <div>
-                      <h4 className="font-serif text-xl text-gray-800">{formatName(prediction.author)}</h4>
-                      {prediction.timestamp && (
-                        <p className="text-xs text-gray-400 font-medium uppercase tracking-widest">
-                          {new Date(prediction.timestamp.toDate()).toLocaleDateString('pt-BR')}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                  
-                  <div className="relative">
-                    <Sparkles className="absolute -top-6 -right-2 w-8 h-8 text-amber-100 opacity-40" />
-                    <p className="text-gray-600 leading-relaxed italic text-sm sm:text-base relative z-10 text-center">
-                      "{prediction.text}"
-                    </p>
-                  </div>
-                </div>
-              </div>
+               <PredictionCard 
+                 key={prediction.id}
+                 prediction={prediction}
+                 isAdmin={isAdmin}
+                 settings={settings}
+                 sessionId={sessionId}
+                 guestSessionId={guestSessionId}
+                 guestName={guestName}
+                 handleDelete={(id) => setPredictionToDelete(id)}
+                 handleShare={handleShare}
+                 formatName={formatName}
+               />
             ))}
           </div>
           
@@ -511,15 +569,18 @@ export default function Predictions({ isAdmin, highlightId, settings }: { isAdmi
 
       {/* Delete Confirmation Modal */}
       {predictionToDelete && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl p-6 max-w-sm w-full shadow-xl">
-            <h3 className="text-xl font-serif text-gray-800 mb-2">Excluir Previsão</h3>
+        <Portal>
+        <div className="fixed inset-0 z-[10000] overflow-y-auto">
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-md" onClick={() => setPredictionToDelete(null)} />
+          <div className="flex min-h-full items-center justify-center p-4">
+            <div className="bg-white rounded-3xl w-full max-w-sm p-6 shadow-2xl relative">
+              <h3 className="text-xl font-serif text-gray-800 mb-2">Excluir Previsão</h3>
             <p className="text-gray-600 mb-6">Tem certeza que deseja excluir esta previsão? Esta ação não pode ser desfeita.</p>
             <div className="flex justify-end gap-3">
               <button 
                 onClick={() => setPredictionToDelete(null)} 
                 disabled={isDeleting}
-                className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-full font-medium transition-colors"
+                className="btn-beige px-4 py-2 rounded-full font-medium"
               >
                 Cancelar
               </button>
@@ -533,6 +594,8 @@ export default function Predictions({ isAdmin, highlightId, settings }: { isAdmi
             </div>
           </div>
         </div>
+      </div>
+      </Portal>
       )}
       {/* Share Modal */}
       {shareData && (

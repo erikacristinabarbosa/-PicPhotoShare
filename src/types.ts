@@ -34,6 +34,8 @@ export interface GuestbookEntry {
   thumbnailLink?: string;
   signatureDataUrl?: string;
   timestamp: any;
+  likesCount?: number;
+  commentsCount?: number;
 }
 
 export interface Settings {
@@ -48,12 +50,24 @@ export interface Settings {
   logoUrl?: string;
   bannerUrl?: string;
   welcomeMessage?: string;
+  welcomeMediaType?: 'photo' | 'video';
+  welcomeMediaUrl?: string;
+  welcomeAudioUrl?: string;
+  welcomeTemplate?: string;
   canLike: boolean;
   canComment: boolean;
   canShare: boolean;
   canDelete: boolean;
   canFavorite: boolean;
   canDownload: boolean;
+  displayBackgrounds?: Array<{id: string, name: string, url: string}>;
+  entranceTemplate?: string;
+  entranceAudioPreset?: string;
+  entranceAudioUrl?: string;
+  customAudioPresets?: Array<{id: string, name: string, url: string}>;
+  instagramUrl?: string;
+  facebookUrl?: string;
+  twitterUrl?: string;
 }
 
 export interface Prediction {
@@ -65,11 +79,14 @@ export interface Prediction {
   driveFileId?: string;
   thumbnailLink?: string;
   timestamp: any;
+  likesCount?: number;
+  commentsCount?: number;
 }
 
 export interface UserLog {
   id: string;
   guestName: string;
+  contact?: string;
   sessionId: string;
   timestamp: any;
 }
