@@ -486,6 +486,16 @@ export default function Login({ settings: initialSettings }: { settings?: Settin
             </button>
           </form>
         </div>
+        <div className="text-center w-full mt-4 flex justify-center">
+          <button 
+            type="button" 
+            onClick={() => navigate('/admin/login')} 
+            className="flex items-center gap-1.5 text-[#BF953F]/80 hover:text-[#BF953F] text-xs font-medium tracking-wide transition-colors"
+          >
+            <Lock size={12} />
+            Acesso Anfitrião
+          </button>
+        </div>
       </div>
       
       <div className="w-full z-10 shrink-0 relative mt-auto pb-4">
