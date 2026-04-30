@@ -1,5 +1,5 @@
 {
-  "name": "Ana 15 Anos",
-  "description": "Aplicativo web para compartilhamento de fotos e vídeos do evento de 15 anos da Ana.",
+  "name": "PicPhotoShare",
+  "description": "A rede social do seu evento",
   "requestFramePermissions": ["camera", "microphone", "allow-popups", "allow-popups-to-escape-sandbox", "clipboard-write", "clipboard-read"]
 }
